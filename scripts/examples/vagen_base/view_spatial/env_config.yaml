@@ -1,0 +1,68 @@
+# View Spatial Bench Environment Configuration
+# This environment trains agents to answer spatial reasoning questions
+
+# No-tool mode (single-turn QA)
+env1:
+    env_name: view_spatial
+    env_config:
+        # Dataset configuration
+        jsonl_path: ""  # Path to your dataset JSONL file
+        dataset_root: ""  # Root path for resolving relative image paths
+        
+        # Mode configuration
+        use_tools: false  # Disable exploration tools for single-turn QA
+        
+        # Reward configuration
+        format_reward: 0.2
+        answer_reward: 0.8
+        
+        # Prompt configuration
+        prompt_format: free_think
+        max_actions_per_step: 1
+        action_sep: "|"
+        
+        # Episode configuration
+        max_episode_steps: 1  # Single-turn for no-tool mode
+        
+    train_size: 5000
+    test_size: 64
+
+# Tool mode (multi-turn with exploration)
+env2:
+    env_name: view_spatial
+    env_config:
+        # Dataset configuration
+        jsonl_path: ""  # Path to your dataset JSONL file
+        dataset_root: ""  # Root path for resolving relative image paths
+        
+        # Rendering configuration (required for tool mode)
+        render_backend: client
+        gs_root: ""  # Path to Gaussian Splatting assets
+        scannet_root: ""  # Path to ScanNet data
+        client_url: "ws://127.0.0.1:8766/render"
+        client_origin: ""
+        scene_id: ""
+        render_width: 300
+        render_height: 300
+        
+        # Mode configuration
+        use_tools: true  # Enable exploration tools
+        
+        # Camera control configuration
+        step_translation: 0.3
+        step_rotation_deg: 30.0
+        
+        # Reward configuration
+        format_reward: 0.2
+        answer_reward: 0.8
+        
+        # Prompt configuration
+        prompt_format: tool
+        max_actions_per_step: 5
+        action_sep: "|"
+        
+        # Episode configuration
+        max_episode_steps: 10
+        
+    train_size: 3000
+    test_size: 64
