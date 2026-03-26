@@ -144,7 +144,7 @@ class TaskConfig:
     # Task-specific parameters
     # absolute_positioning: distances should not exceed 2m for practical navigation
     absolute_positioning_distances: List[float] = field(default_factory=lambda: [0.8, 1.0, 1.2, 1.5])
-    delta_control_deltas: List[float] = field(default_factory=lambda: [0.3, 0.5, 0.7, 1.0])
+    delta_control_deltas: List[float] = field(default_factory=lambda: [0.5, 0.7, 1.0, 1.5])
     projective_relations: List[str] = field(default_factory=lambda: ['left', 'right'])
     screen_occupancy_ratios: List[float] = field(default_factory=lambda: [0.2, 0.3, 0.5, 0.7])
     
@@ -164,6 +164,116 @@ class TaskConfig:
     agent_height: float = 1.5  # meters
 
 
+@dataclass
+class InitialViewConfig:
+    """Configuration for task-aware initial view difficulty control.
+    
+    Controls how far the initial camera should be from the target region,
+    ensuring the agent needs meaningful navigation (not just 1-2 steps).
+    
+    Each task type has:
+    - min_distance: Minimum 2D distance from init position to target sample_point (meters)
+    - max_init_score: Maximum allowed initial score (lower = harder start)
+    - min_yaw_offset_deg: Minimum angular offset between init forward and target direction (degrees)
+    - min_steps: Minimum estimated navigation steps (distance/0.1 + yaw_offset/5)
+    
+    Design rationale per task category:
+    - Metric Distance Tasks (absolute_positioning, delta_control, screen_occupancy):
+      Target is distance-based. Difficulty comes from being at wrong distance + yaw offset.
+      delta_control is special: target is inherently delta-away from init, so we rely on
+      yaw offset for difficulty (not distance).
+    - Relative Position Tasks (equidistance, projective_relations, centering, occlusion):
+      Target is geometric-relation-based. Difficulty comes from being in wrong geometric
+      configuration + needing to navigate to the correct region.
+    - View Perspective Tasks (fov_inclusion, size_distance_invariance):
+      Target is view-dependent. Difficulty comes from needing distance adjustment + orientation.
+    """
+    # ===== Per-task minimum distance from init to target (meters) =====
+    # Key insight: step_size=0.1m, so 1.0m ≈ 10 forward steps
+    # NOTE: delta_control target is inherently delta-away from init (0.3-1.0m),
+    # so min_distance must be small. Difficulty for delta_control comes from yaw offset.
+    task_min_distances: Dict[str, float] = field(default_factory=lambda: {
+        # Metric Distance Tasks
+        'absolute_positioning': 0.8,   # 8 forward steps; camera should not already be on target circle
+        'delta_control': 0.4,          # Moderate: target IS delta-away; larger deltas (0.5-1.5m) survive
+        'equidistance': 1.2,           # 12 steps; should not start on perpendicular bisector
+        # Relative Position Tasks  
+        'projective_relations': 1.2,   # 12 steps; should start on wrong side
+        'centering': 1.5,              # 15 steps; complex 3-object alignment
+        'occlusion_alignment': 1.0,    # 10 steps; precise ray alignment
+        # View Perspective Tasks
+        'fov_inclusion': 1.0,          # 10 steps; distance adjustment needed
+        'size_distance_invariance': 1.0,  # 10 steps; distance adjustment needed
+        'screen_occupancy': 0.8,       # 8 steps; distance adjustment needed
+    })
+    
+    # ===== Per-task maximum initial score =====
+    # Lower score = worse starting position = harder training
+    # Score=1.0 means "already at optimal", score=0.0 means "maximally far from optimal"
+    task_max_init_scores: Dict[str, float] = field(default_factory=lambda: {
+        'absolute_positioning': 0.6,   # Should not start near target circle
+        'delta_control': 0.7,          # Relaxed: delta is small; difficulty from yaw offset
+        'equidistance': 0.55,          # Should not start near perpendicular bisector
+        'projective_relations': 0.6,   # Should not start in correct half-plane
+        'centering': 0.55,             # Should not start near centering ray
+        'occlusion_alignment': 0.55,   # Should not start near occlusion ray
+        'fov_inclusion': 0.6,          # Moderate
+        'size_distance_invariance': 0.6,  # Moderate
+        'screen_occupancy': 0.6,       # Should not start at correct distance
+    })
+    
+    # ===== Per-task minimum yaw offset (degrees) =====
+    # Ensures the agent can't just walk straight forward to reach the target.
+    # The agent must first turn, adding rotational complexity.
+    # step_rotation=5°, so 15° ≈ 3 turn steps, 30° ≈ 6 turn steps
+    # delta_control relies HEAVILY on yaw offset since distance is inherently small
+    task_min_yaw_offsets: Dict[str, float] = field(default_factory=lambda: {
+        'absolute_positioning': 15.0,  # 3 turn steps
+        'delta_control': 0.0,          # NO yaw check: target is on the forward axis by definition
+        'equidistance': 20.0,          # 4 turn steps
+        'projective_relations': 20.0,  # 4 turn steps
+        'centering': 25.0,             # 5 turn steps
+        'occlusion_alignment': 20.0,   # 4 turn steps
+        'fov_inclusion': 15.0,         # 3 turn steps
+        'size_distance_invariance': 15.0,  # 3 turn steps
+        'screen_occupancy': 15.0,      # 3 turn steps
+    })
+    
+    # ===== Per-task minimum estimated total steps =====
+    # Estimated as: distance_steps + turn_steps
+    # where distance_steps = distance / 0.1, turn_steps = yaw_offset / 5
+    # This is a combined check to ensure enough overall navigation complexity
+    task_min_total_steps: Dict[str, int] = field(default_factory=lambda: {
+        'absolute_positioning': 12,    # ~8 walk + 3 turn
+        'delta_control': 4,            # delta IS the movement; 0.5m=5 steps minimum
+        'equidistance': 16,            # ~12 walk + 4 turn
+        'projective_relations': 16,    # ~12 walk + 4 turn
+        'centering': 20,               # ~15 walk + 5 turn
+        'occlusion_alignment': 14,     # ~10 walk + 4 turn
+        'fov_inclusion': 12,           # ~10 walk + 3 turn
+        'size_distance_invariance': 12,  # ~10 walk + 3 turn
+        'screen_occupancy': 10,        # ~8 walk + 3 turn
+    })
+    
+    # ===== Global fallback thresholds =====
+    default_min_distance: float = 0.8     # Fallback: at least 0.8m (8 steps)
+    default_max_init_score: float = 0.6   # Fallback: stricter than old 0.7
+    default_min_yaw_offset: float = 15.0  # Fallback: at least 3 turn steps
+    default_min_total_steps: int = 10     # Fallback: combined steps
+    
+    def get_min_distance(self, task_type: str) -> float:
+        return self.task_min_distances.get(task_type, self.default_min_distance)
+    
+    def get_max_init_score(self, task_type: str) -> float:
+        return self.task_max_init_scores.get(task_type, self.default_max_init_score)
+    
+    def get_min_yaw_offset(self, task_type: str) -> float:
+        return self.task_min_yaw_offsets.get(task_type, self.default_min_yaw_offset)
+    
+    def get_min_total_steps(self, task_type: str) -> int:
+        return self.task_min_total_steps.get(task_type, self.default_min_total_steps)
+
+
 @dataclass 
 class PipelineConfig:
     """Main configuration for the entire pipeline."""
@@ -178,6 +288,7 @@ class PipelineConfig:
     object_selection: ObjectSelectionConfig = field(default_factory=ObjectSelectionConfig)
     camera_sampling: CameraSamplingConfig = field(default_factory=CameraSamplingConfig)
     task_config: TaskConfig = field(default_factory=TaskConfig)
+    initial_view: InitialViewConfig = field(default_factory=InitialViewConfig)
     
     # Processing options
     save_intermediate: bool = True  # Save intermediate results
@@ -192,15 +303,14 @@ class PipelineConfig:
         obj_sel = ObjectSelectionConfig(**config_dict.pop('object_selection', {}))
         cam_samp = CameraSamplingConfig(**config_dict.pop('camera_sampling', {}))
         task_cfg = TaskConfig(**config_dict.pop('task_config', {}))
+        init_view = InitialViewConfig(**config_dict.pop('initial_view', {}))
         
         return cls(
             object_selection=obj_sel,
             camera_sampling=cam_samp,
             task_config=task_cfg,
+            initial_view=init_view,
             **config_dict
-
-
-            
         )
     
     def to_dict(self) -> Dict[str, Any]:

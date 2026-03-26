@@ -30,6 +30,8 @@ cd /scratch/by2593/project/Active_Spatial/VAGEN
 
 # 一条命令启动训练
 bash scripts/examples/vagen_base/active_spatial/run.sh
+bash scripts/examples/vagen_base/active_spatial/run_warmer.sh
+bash scripts/examples/vagen_base/active_spatial/run_7gpu_v2.sh
 ```
 
 **当前配置**（`run.sh` 默认）：
@@ -133,6 +135,8 @@ cd /scratch/by2593/project/Active_Spatial/VAGEN
 
 # 确保渲染服务器已运行后，再启动训练
 bash scripts/examples/vagen_base/active_spatial/run.sh
+bash scripts/examples/vagen_base/active_spatial/run_warmer.sh
+bash scripts/examples/vagen_base/active_spatial/run_7gpu_v2.sh
 ```
 
 ### 性能对比
@@ -228,6 +232,7 @@ conda activate vagen
 
 # 确保已修改 use_service=True，然后启动训练
 bash scripts/examples/vagen_base/active_spatial/run.sh
+bash scripts/examples/vagen_base/active_spatial/run_warmer.sh
 ```
 
 ---

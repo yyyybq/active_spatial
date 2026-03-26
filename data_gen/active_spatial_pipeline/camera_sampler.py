@@ -946,8 +946,9 @@ class CameraSampler:
             base_dist * 0.8,
             base_dist,
             base_dist * 1.3,
-            base_dist * 1.6,
-            base_dist * 2.0
+            base_dist * 1.7,
+            base_dist * 2.2,
+            base_dist * 2.8,
         ]
         
         return radii, base_dist
@@ -1041,15 +1042,23 @@ class CameraSampler:
         base_dist = max(obj_size * fov_factor * 1.5, 1.0)
         
         # Limit radii based on scene bounds to avoid going outside
-        max_radius = base_dist * 2.0
+        max_radius = base_dist * 3.0  # Increased from 2.0 to allow farther init views
         if scene_bounds is not None:
             # Calculate max radius that keeps camera within scene bounds
             scene_size = np.linalg.norm(scene_bounds.max_point[:2] - scene_bounds.min_point[:2])
-            # Use a fraction of scene size as max radius
-            max_radius = min(max_radius, scene_size * 0.4)
+            # Use a larger fraction of scene size as max radius
+            max_radius = min(max_radius, scene_size * 0.5)  # Increased from 0.4
         
-        radii = [base_dist * 0.8, base_dist, base_dist * 1.3, min(base_dist * 1.6, max_radius)]
-        radii = [r for r in radii if r <= max_radius]  # Filter out too-large radii
+        # More diverse radii: include farther distances for harder initial positions
+        radii = [
+            base_dist * 0.8,
+            base_dist,
+            base_dist * 1.3,
+            base_dist * 1.7,
+            min(base_dist * 2.2, max_radius),
+            min(base_dist * 2.8, max_radius),
+        ]
+        radii = sorted(set(r for r in radii if r <= max_radius))  # Deduplicate and filter
         
         # Find room for object
         target_room_idx = None
@@ -1089,22 +1098,7 @@ class CameraSampler:
                     
                     if not is_valid_pos:
                         rejection_stats[reject_reason] = rejection_stats.get(reject_reason, 0) + 1
-                        # Fallback: if room check fails, try relaxed validation
-                        if reject_reason == 'not_in_target_room':
-                            is_valid_pos, reject_reason = self.validate_camera_position_full(
-                                cam_pos, room_polys, scene_bounds,
-                                object_aabbs if enable_collision_check else [],
-                                wall_aabbs if enable_collision_check else [],
-                                target_room_idx,
-                                require_in_target_room=False,
-                                check_collision=enable_collision_check,
-                                check_wall_dist=enable_collision_check
-                            )
-                            if not is_valid_pos:
-                                rejection_stats[reject_reason] = rejection_stats.get(reject_reason, 0) + 1
-                                continue
-                        else:
-                            continue
+                        continue
                     
                     # Check precise FOV using camera projection
                     is_in_fov, fov_reason = self.check_target_in_fov(
@@ -1284,7 +1278,7 @@ class CameraSampler:
         max_radius = max(radii) if radii else 3.0
         if scene_bounds is not None:
             scene_size = np.linalg.norm(scene_bounds.max_point[:2] - scene_bounds.min_point[:2])
-            max_radius = min(max_radius, scene_size * 0.4)
+            max_radius = min(max_radius, scene_size * 0.5)  # Increased from 0.4
             radii = [r for r in radii if r <= max_radius]
             if not radii:
                 radii = [max_radius * 0.6, max_radius * 0.8]  # Fallback radii
@@ -1329,22 +1323,7 @@ class CameraSampler:
                     
                     if not is_valid_pos:
                         rejection_stats[reject_reason] = rejection_stats.get(reject_reason, 0) + 1
-                        # Fallback: try relaxed validation
-                        if reject_reason == 'not_in_target_room':
-                            is_valid_pos, reject_reason = self.validate_camera_position_full(
-                                cam_pos, room_polys, scene_bounds,
-                                object_aabbs if enable_collision_check else [],
-                                wall_aabbs if enable_collision_check else [],
-                                target_room_idx,
-                                require_in_target_room=False,
-                                check_collision=enable_collision_check,
-                                check_wall_dist=enable_collision_check
-                            )
-                            if not is_valid_pos:
-                                rejection_stats[reject_reason] = rejection_stats.get(reject_reason, 0) + 1
-                                continue
-                        else:
-                            continue
+                        continue
                     
                     # Check visibility for both objects using precise FOV projection
                     fov_a, reason_a = self.check_target_in_fov(
@@ -1647,19 +1626,18 @@ class CameraSampler:
                     # Camera looks at the SECOND object center
                     cam_target = np.array([look_target[0], look_target[1], look_target[2]], dtype=float)
                     
-                    # For triples, use VERY relaxed validation:
-                    # - No scene_bounds check (camera may be far from objects)
-                    # - No room polygon check (objects may span multiple rooms)
-                    # - Only check collision with objects/walls
+                    # For triples, require camera to be inside SOME room.
+                    # If all three objects share a room, prefer that room.
+                    # Otherwise, just require the camera to be in any room polygon.
                     is_valid_pos, reject_reason = self.validate_camera_position_full(
-                        cam_pos, [],  # Empty room_polys - skip room check entirely for triples
-                        None,  # Disable scene_bounds for triples
+                        cam_pos, room_polys,
+                        scene_bounds,
                         object_aabbs if enable_collision_check else [],
                         wall_aabbs if enable_collision_check else [],
-                        None,  # No target room
-                        require_in_target_room=False,
+                        target_room_idx,  # May be None if objects span rooms
+                        require_in_target_room=(target_room_idx is not None),
                         check_collision=enable_collision_check,
-                        check_wall_dist=False  # Also disable wall distance check for triples
+                        check_wall_dist=enable_collision_check
                     )
                     
                     if not is_valid_pos:

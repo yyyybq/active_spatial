@@ -67,7 +67,7 @@ class TargetRegion:
         """Convert numpy types to native Python types for JSON serialization."""
         if isinstance(value, np.ndarray):
             return value.tolist()
-        elif isinstance(value, (np.bool_, np.bool8)):
+        elif isinstance(value, (np.bool_,)):
             return bool(value)
         elif isinstance(value, (np.integer, np.int64, np.int32)):
             return int(value)
@@ -961,7 +961,67 @@ class TaskGenerator:
             ])
             curve_points.append(pt.tolist())
         
-        # Sample one point
+        # FEASIBILITY CHECK: At least some curve points must have both objects
+        # within the vertical FoV. The FoV half-angle determines the max
+        # downward angle from the forward direction. If objects are at floor
+        # level and the camera is at agent_height on a small circle, the
+        # vertical angle can exceed the FoV.
+        # The env uses fov_vertical=60° (half=30°). The scorer marks objects
+        # "completely invisible" when >15° beyond the edge (excess > 15°),
+        # applying a severe penalty. So the effective max tolerable angle is:
+        #   fov_half + completely_invisible_threshold = 30° + 15° = 45°
+        # We use 90° total (45° half) to match this threshold.
+        feasibility_fov = 90.0  # degrees — matches scorer's "completely invisible" boundary
+        fov_v_half = np.radians(feasibility_fov / 2)
+        feasible_count = 0
+        for pt in curve_points:
+            pt_arr = np.array(pt)
+            # Forward direction is horizontal (toward midpoint of objects)
+            # This matches the scorer which uses a horizontal forward vector
+            mid = (center_a + center_b) / 2
+            fwd_2d = mid[:2] - pt_arr[:2]
+            fwd_2d_norm = np.linalg.norm(fwd_2d)
+            if fwd_2d_norm < 1e-6:
+                continue
+            fwd_2d = fwd_2d / fwd_2d_norm
+            
+            # Check vertical angle to each object center from the optical axis
+            # The scorer uses horizontal forward, so vertical_angle = arctan2(dz, forward_dot)
+            all_in_fov = True
+            for obj_center in [center_a, center_b]:
+                to_obj = obj_center - pt_arr
+                # Project onto forward direction (horizontal)
+                forward_dot = to_obj[0] * fwd_2d[0] + to_obj[1] * fwd_2d[1]
+                if forward_dot <= 0:
+                    # Object is behind camera
+                    all_in_fov = False
+                    break
+                vertical_angle = abs(np.arctan2(to_obj[2], forward_dot))
+                if vertical_angle > fov_v_half:
+                    all_in_fov = False
+                    break
+            if all_in_fov:
+                feasible_count += 1
+        
+        if feasible_count < max(1, num_curve_points * 0.1):
+            # No curve point can see both objects → task infeasible
+            return TaskResult(
+                task_type='size_distance_invariance',
+                task_params={'object_a': object_a.ins_id, 'object_b': object_b.ins_id},
+                target_region=TargetRegion(
+                    region_type=RegionType.CURVE,
+                    params={"center": apollonius_center, "radius": apollonius_radius},
+                    sample_point=np.array(curve_points[0]),
+                    sample_forward=np.array([1, 0, 0]),
+                    height=agent_height
+                ),
+                preset='equal_size',
+                is_valid=False,
+                description=f"INFEASIBLE: Only {feasible_count}/{num_curve_points} curve points have both objects in FoV",
+                object_label=f"{object_a.label}+{object_b.label}"
+            )
+        
+        # Sample one feasible point
         sample_idx = np.random.randint(num_curve_points)
         sample_pt = np.array(curve_points[sample_idx])
         
@@ -1016,6 +1076,8 @@ class TaskGenerator:
         d = (h / 2) / tan(occupancy_ratio * fov_v / 2)
         
         Distance is clamped to be at least max(object's max dimension, 0.5m).
+        If the required distance < min_distance (i.e., can't get close enough),
+        the task is marked as INVALID.
         """
         center = target.center.copy()
         obj_height = target.height
@@ -1032,6 +1094,37 @@ class TaskGenerator:
             target_angular_size = 0.01  # Minimum to avoid division by zero
         
         required_distance = (obj_height / 2) / np.tan(target_angular_size / 2)
+        
+        # FEASIBILITY CHECK: If the theoretical distance is less than min_dist,
+        # the camera can't get close enough to achieve the target occupancy.
+        # The max achievable occupancy at min_dist is:
+        #   max_occ = (2 * arctan(obj_height / (2 * min_dist))) / fov_rad
+        # If this is significantly below target, mark task as invalid.
+        theoretical_distance = required_distance  # before clamping
+        max_occupancy_at_min_dist = (2 * np.arctan(obj_height / (2 * min_dist))) / fov_rad
+        
+        if theoretical_distance < min_dist and max_occupancy_at_min_dist < occupancy_ratio * 0.85:
+            # Task is infeasible - can't achieve target occupancy even at closest distance
+            occupancy_pct = int(occupancy_ratio * 100)
+            return TaskResult(
+                task_type='screen_occupancy',
+                task_params={
+                    'target_object': target.ins_id,
+                    'occupancy_ratio': occupancy_ratio,
+                    'fov_vertical': fov_vertical
+                },
+                target_region=TargetRegion(
+                    region_type=RegionType.CIRCLE,
+                    params={},
+                    sample_point=center,
+                    sample_forward=np.array([1, 0, 0]),
+                    height=agent_height
+                ),
+                preset=f"occupancy_{occupancy_pct}",
+                is_valid=False,
+                description=f"INFEASIBLE: {target.label} occupancy {occupancy_pct}% requires d={theoretical_distance:.2f}m but min_dist={min_dist:.2f}m",
+                object_label=target.label
+            )
         
         # Clamp to reasonable range, respecting minimum distance
         required_distance = np.clip(required_distance, min_dist, 20.0)

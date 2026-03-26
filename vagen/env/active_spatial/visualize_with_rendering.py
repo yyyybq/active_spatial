@@ -98,10 +98,11 @@ def look_at_matrix(camera_position: np.ndarray, look_at_point: np.ndarray,
     """
     Generate camera extrinsics (camera-to-world) matrix using look-at formulation.
     
-    This follows the same convention as the existing setup_camera in gs_render.py:
-    - X axis: -right
-    - Y axis: up
+    Uses OpenCV convention matching the dataset c2w matrices:
+    - X axis: right
+    - Y axis: -up (down, image Y points downward)
     - Z axis: forward (toward target)
+    - Right-handed coordinate system (det(R) = +1)
     """
     if up_vector is None:
         up_vector = np.array([0, 0, 1], dtype=np.float64)
@@ -137,11 +138,12 @@ def look_at_matrix(camera_position: np.ndarray, look_at_point: np.ndarray,
     up_corrected = np.cross(right, forward)
     up_corrected = up_corrected / np.linalg.norm(up_corrected)
     
-    # Build camera-to-world matrix (same convention as gs_render.py setup_camera)
-    # X = -right, Y = up, Z = forward
+    # Build camera-to-world matrix using OpenCV convention:
+    # X = right, Y = -up (down), Z = forward
+    # This matches the dataset c2w where col1 points downward and col2 points toward object
     c2w = np.eye(4, dtype=np.float64)
-    c2w[:3, 0] = -right
-    c2w[:3, 1] = up_corrected
+    c2w[:3, 0] = right
+    c2w[:3, 1] = -up_corrected
     c2w[:3, 2] = forward
     c2w[:3, 3] = position
     
@@ -245,13 +247,12 @@ def create_combined_visualization(
     """
     Create a combined visualization with heatmap and rendered views.
     
-    Layout:
-    +----------------+----------------+
-    |   Init View    |  Target View   |
-    +----------------+----------------+
-    |         Potential Field          |
-    |          Heatmap (wide)          |
-    +----------------------------------+
+    Layout (2x2):
+    +-------------------+-------------------+
+    |   Init View       |  Target View      |
+    +-------------------+-------------------+
+    | Full Scene Heatmap| Room-Focused Score |
+    +-------------------+-------------------+
     """
     colors = ['#d73027', '#fc8d59', '#fee08b', '#d9ef8b', '#91cf60', '#1a9850']
     cmap = LinearSegmentedColormap.from_list('score_cmap', colors, N=256)
@@ -278,9 +279,9 @@ def create_combined_visualization(
     task_desc = task.get("task_description", "")
     object_label = task.get("object_label", "object")
     
-    # Create figure
-    fig = plt.figure(figsize=(16, 12))
-    gs = GridSpec(2, 2, figure=fig, height_ratios=[1, 1.2], wspace=0.1, hspace=0.2)
+    # Create 2x2 figure
+    fig = plt.figure(figsize=(18, 14))
+    gs = GridSpec(2, 2, figure=fig, height_ratios=[1, 1.2], wspace=0.2, hspace=0.25)
     
     # ==================== Top Left: Initial View ====================
     ax_init = fig.add_subplot(gs[0, 0])
@@ -304,43 +305,66 @@ def create_combined_visualization(
         ax_target.set_title("Target View (Failed)", fontsize=12)
     ax_target.axis('off')
     
-    # ==================== Bottom: Potential Field Heatmap ====================
-    ax_heatmap = fig.add_subplot(gs[1, :])
+    # Add path info for bottom titles
+    planned_path = metadata.get("planned_path", [])
+    num_steps = len(planned_path) - 1 if planned_path else 0
+    region_type = metadata.get("region_type", "unknown")
     
-    im = ax_heatmap.pcolormesh(X, Y, masked_scores, cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax_heatmap.pcolormesh(X, Y, collision_overlay, cmap='gray', shading='auto', alpha=0.7, vmin=0, vmax=1)
+    # ==================== Bottom Left: Full Scene Heatmap ====================
+    ax_full = fig.add_subplot(gs[1, 0])
+    
+    im1 = ax_full.pcolormesh(X, Y, masked_scores, cmap=cmap, shading='auto', vmin=0, vmax=1)
+    ax_full.pcolormesh(X, Y, collision_overlay, cmap='gray', shading='auto', alpha=0.7, vmin=0, vmax=1)
+    
+    scene.plot_on_axes(ax_full, alpha=0.5, show_labels=False)
+    _add_task_annotations(ax_full, metadata)
+    
+    ax_full.set_title(
+        f"Full Scene: {task_type} ({region_type.upper()})\n"
+        f"{task_desc}\n"
+        f"Planned Path: {num_steps} steps",
+        fontsize=10, fontweight='bold'
+    )
+    ax_full.set_xlabel('X (m)', fontsize=10)
+    ax_full.set_ylabel('Y (m)', fontsize=10)
+    ax_full.set_aspect('equal', adjustable='box')
+    ax_full.grid(True, alpha=0.2, linestyle=':')
+    
+    cbar1 = plt.colorbar(im1, ax=ax_full, shrink=0.7, pad=0.02)
+    cbar1.set_label('Score', fontsize=9)
+    
+    # ==================== Bottom Right: Room-Focused Score ====================
+    ax_room = fig.add_subplot(gs[1, 1])
+    
+    im2 = ax_room.pcolormesh(X, Y, masked_scores, cmap=cmap, shading='auto', vmin=0, vmax=1)
+    ax_room.pcolormesh(X, Y, collision_overlay, cmap='gray', shading='auto', alpha=0.7, vmin=0, vmax=1)
     
     if room_bounds:
-        ax_heatmap.set_xlim(room_bounds[0], room_bounds[1])
-        ax_heatmap.set_ylim(room_bounds[2], room_bounds[3])
-        scene.plot_on_axes(ax_heatmap, alpha=0.5, show_labels=True,
+        ax_room.set_xlim(room_bounds[0], room_bounds[1])
+        ax_room.set_ylim(room_bounds[2], room_bounds[3])
+        scene.plot_on_axes(ax_room, alpha=0.5, show_labels=True,
                           xlim=(room_bounds[0], room_bounds[1]),
                           ylim=(room_bounds[2], room_bounds[3]))
     else:
-        scene.plot_on_axes(ax_heatmap, alpha=0.5, show_labels=True)
+        scene.plot_on_axes(ax_room, alpha=0.5, show_labels=True)
     
-    _add_task_annotations(ax_heatmap, metadata)
+    _add_task_annotations(ax_room, metadata)
     
-    # Add path info to title
-    planned_path = metadata.get("planned_path", [])
-    num_steps = len(planned_path) - 1 if planned_path else 0
-    
-    ax_heatmap.set_title(
-        f"Task: {task_type} | Object: {object_label}\n"
-        f"{task_desc}\n"
-        f"Planned Path: {num_steps} steps",
-        fontsize=11, fontweight='bold'
+    ax_room.set_title(
+        f"Target Room: Potential Field\n"
+        f"Object: {object_label} | Gray=Collision",
+        fontsize=10, fontweight='bold'
     )
-    ax_heatmap.set_xlabel('X (m)', fontsize=10)
-    ax_heatmap.set_ylabel('Y (m)', fontsize=10)
-    ax_heatmap.set_aspect('equal', adjustable='box')
-    ax_heatmap.grid(True, alpha=0.3, linestyle=':')
+    ax_room.set_xlabel('X (m)', fontsize=10)
+    ax_room.set_ylabel('Y (m)', fontsize=10)
+    ax_room.set_aspect('equal', adjustable='box')
+    ax_room.grid(True, alpha=0.3, linestyle=':')
     
-    cbar = plt.colorbar(im, ax=ax_heatmap, shrink=0.6, pad=0.02)
-    cbar.set_label('Potential Field Score', fontsize=9)
+    cbar2 = plt.colorbar(im2, ax=ax_room, shrink=0.7, pad=0.02)
+    cbar2.set_label('Score', fontsize=9)
     
-    # Add legend
-    ax_heatmap.legend(loc='upper right', fontsize=8)
+    # Add legend to room-focused view
+    ax_room.legend(loc='upper right', fontsize=7)
     
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -433,16 +457,39 @@ async def visualize_tasks_with_rendering(
                     object_center = [object_center[0], object_center[1], 1.5]
                 object_center = np.array(object_center)
                 
-                # Render initial view (looking at object center)
+                # Render initial view using dataset c2w directly (most accurate)
                 init_image = None
                 if init_pos is not None:
                     print(f"    Rendering initial view...")
-                    # For initial view, compute forward direction toward object
-                    init_forward = object_center - init_pos
-                    init_image = await render_view(
-                        renderer, init_pos, init_forward, intrinsics,
-                        render_width, render_height
-                    )
+                    # Use dataset c2w directly to match training rendering exactly
+                    init_extrinsics = init_camera.get("extrinsics", None)
+                    if init_extrinsics is not None:
+                        c2w = np.array(init_extrinsics)
+                        w2c = extrinsics_c2w_to_w2c(c2w)
+                        K = np.array(intrinsics)
+                        if K.shape == (4, 4):
+                            K = K[:3, :3]
+                        try:
+                            init_image = await renderer.render_image_from_cam_param(
+                                camera_intrinsics=K,
+                                camera_extrinsics=w2c,
+                                width=render_width,
+                                height=render_height,
+                            )
+                        except Exception as e:
+                            print(f"      Direct c2w render failed: {e}, falling back to look_at")
+                            init_forward = object_center - init_pos
+                            init_image = await render_view(
+                                renderer, init_pos, init_forward, intrinsics,
+                                render_width, render_height
+                            )
+                    else:
+                        # Fallback: use look_at toward object center
+                        init_forward = object_center - init_pos
+                        init_image = await render_view(
+                            renderer, init_pos, init_forward, intrinsics,
+                            render_width, render_height
+                        )
                 
                 # Get planned target position and forward direction
                 planned_target_pos = metadata.get("planned_target_pos")

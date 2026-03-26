@@ -42,6 +42,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 
 from vagen.rollout.qwen_rollout.rollout_manager import QwenVLRolloutManager
 from vagen.rollout.qwen_rollout.rollout_manager_service import QwenVLRolloutManagerService
+from vagen.rollout.cambrian_rollout.rollout_manager import CambrianRolloutManager
 WorkerType = Type[Worker]
 
 
@@ -760,7 +761,16 @@ class RayPPOTrainer(object):
         # Lists to collect samples for the table
     
         if self.test_rollout_manager==None:
-            if self.config.rollout_manager.get("use_service",False):
+            rollout_type = self.config.rollout_manager.get("rollout_type", "qwen")
+            if rollout_type == "cambrian":
+                self.test_rollout_manager = CambrianRolloutManager(
+                    actor_rollout_wg=self.actor_rollout_wg,
+                    config=self.config.rollout_manager,
+                    tokenizer=self.tokenizer,
+                    processor=self.processor,
+                    image_processor=getattr(self, 'image_processor', None),
+                )
+            elif self.config.rollout_manager.get("use_service",False):
                 self.test_rollout_manager =QwenVLRolloutManagerService(
                     actor_rollout_wg=self.actor_rollout_wg,
                     config=self.config.rollout_manager,
@@ -1077,7 +1087,16 @@ class RayPPOTrainer(object):
         # we start from step 1
         self.global_steps += 1
 
-        if self.config.rollout_manager.get("use_service",False):
+        rollout_type = self.config.rollout_manager.get("rollout_type", "qwen")
+        if rollout_type == "cambrian":
+            rollout_manager = CambrianRolloutManager(
+                actor_rollout_wg=self.actor_rollout_wg,
+                config=self.config.rollout_manager,
+                tokenizer=self.tokenizer,
+                processor=self.processor,
+                image_processor=getattr(self, 'image_processor', None),
+            )
+        elif self.config.rollout_manager.get("use_service",False):
             rollout_manager = QwenVLRolloutManagerService(
                 actor_rollout_wg=self.actor_rollout_wg,
                 config=self.config.rollout_manager,

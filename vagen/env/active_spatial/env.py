@@ -566,6 +566,12 @@ class ActiveSpatialEnv(BaseEnv):
                     if self._current_step >= self._max_episode_steps:
                         done = True
                         self.episode_done = True
+                        # Check success at natural termination
+                        final_score = self._calculate_current_score()
+                        if final_score >= self.config.success_score_threshold:
+                            self.reward += self.config.success_reward
+                            metrics["traj_metrics"]["success"] = True
+                            info["final_score"] = final_score
                         break
             
             # Add format reward
@@ -592,6 +598,17 @@ class ActiveSpatialEnv(BaseEnv):
         if not done and metrics["turn_metrics"]["action_is_valid"]:
             pose_reward = self._calculate_pose_reward()
             self.reward += pose_reward
+            
+            # Auto-terminate when score >= threshold
+            if self.config.enable_auto_termination and self.prev_potential_score >= self.config.success_score_threshold:
+                done = True
+                self.episode_done = True
+                self.reward += self.config.success_reward
+                metrics["traj_metrics"]["success"] = True
+                info["final_score"] = self.prev_potential_score
+                info["auto_terminated"] = True
+                if self.VERBOSE:
+                    print(f"[AutoTerminate] score={self.prev_potential_score:.4f} >= {self.config.success_score_threshold}, granting success_reward={self.config.success_reward}")
         
         # Check if action was effective
         curr_E = self.view_engine.get_pose()
@@ -738,11 +755,6 @@ class ActiveSpatialEnv(BaseEnv):
                     potential_reward = current_score * self.config.potential_field_reward_scale * 0.1
                 
                 total_reward += potential_reward
-                
-                # Check for near-success based on potential field score
-                if current_score >= self.config.success_score_threshold:
-                    # Near-success bonus (but not full success_reward, that's for "done" action)
-                    total_reward += 0.1
                 
                 # Update previous score for next step
                 self.prev_potential_score = current_score

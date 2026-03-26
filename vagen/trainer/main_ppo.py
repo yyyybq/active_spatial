@@ -135,6 +135,30 @@ def main_task(config, compute_score=None):
                             ray_worker_group_cls=ray_worker_group_cls,
                             reward_fn=reward_fn,
                             val_reward_fn=val_reward_fn)
+    
+    # For Cambrian-S: load image processor from vision tower config
+    # This is needed by CambrianRolloutManager on the main process
+    rollout_type = config.rollout_manager.get("rollout_type", "qwen")
+    if rollout_type == "cambrian":
+        from transformers import AutoConfig as _AC
+        model_config = _AC.from_pretrained(local_path, trust_remote_code=True)
+        vision_tower_names = getattr(model_config, 'vision_tower_aux_list', [])
+        if vision_tower_names:
+            from transformers import AutoImageProcessor
+            image_processor_list = []
+            for vt_name in vision_tower_names:
+                try:
+                    ip = AutoImageProcessor.from_pretrained(vt_name)
+                    image_processor_list.append(ip)
+                    print(f"[CambrianSetup] Loaded image processor from {vt_name}")
+                except Exception as e:
+                    print(f"[CambrianSetup] WARNING: Failed to load image processor from {vt_name}: {e}")
+            trainer.image_processor = image_processor_list
+            print(f"[CambrianSetup] {len(image_processor_list)} image processor(s) set on trainer")
+        else:
+            print("[CambrianSetup] WARNING: No vision_tower_aux_list in model config")
+            trainer.image_processor = None
+    
     trainer.init_workers()
     trainer.fit()
 

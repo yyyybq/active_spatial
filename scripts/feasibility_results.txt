@@ -1,0 +1,203 @@
+Loaded 7 rooms
+Loaded 850 tasks
+
+======================================================================
+INIT CAMERA ROOM ANALYSIS
+======================================================================
+  OUTSIDE: Task 848 (centering) init=(5.01,0.16) target_room=6
+  OUTSIDE: Task 849 (centering) init=(5.43,0.58) target_room=6
+
+Init in same room as target: 734
+Init in WRONG room: 114
+Init OUTSIDE all rooms: 2
+
+======================================================================
+TASK FEASIBILITY (grid=0.15m, 24 orientations)
+======================================================================
+
+Checking 38 representative tasks...
+
+  [FAIL] Task   59: screen_occupancy              /occupancy_50    max=0.6732 pos_s=0.5683 ori_s=0.9828 best=(-0.82,3.07) room=4
+  [OK] Task   64: absolute_positioning          /left            max=0.9933 pos_s=1.0000 ori_s=0.9833 best=(-0.52,2.32) room=4
+  [OK] Task  112: absolute_positioning          /back            max=0.9611 pos_s=0.9879 ori_s=0.9203 best=(-0.37,-0.14) room=0
+  [FAIL] Task  163: screen_occupancy              /occupancy_30    max=0.9287 pos_s=0.9880 ori_s=0.8384 best=(-0.07,2.62) room=4
+  [OK] Task  215: absolute_positioning          /left            max=0.9981 pos_s=1.0000 ori_s=0.9952 best=(-2.02,3.37) room=4
+  [OK] Task  221: absolute_positioning          /right           max=0.9981 pos_s=1.0000 ori_s=0.9952 best=(-2.02,3.37) room=4
+  [OK] Task  278: screen_occupancy              /occupancy_20    max=0.9950 pos_s=1.0000 ori_s=0.9875 best=(-0.67,-1.34) room=0
+  [OK] Task  286: absolute_positioning          /right           max=0.9937 pos_s=1.0000 ori_s=0.9843 best=(1.84,-0.25) room=1
+  [OK] Task  320: screen_occupancy              /occupancy_70    max=0.9724 pos_s=0.9583 ori_s=0.9949 best=(-2.62,-2.54) room=0
+  [OK] Task  350: delta_control                 /closer          max=0.9697 pos_s=0.9642 ori_s=0.9784 best=(-2.47,-3.29) room=0
+  [OK] Task  358: absolute_positioning          /back            max=0.9728 pos_s=0.9918 ori_s=0.9439 best=(-0.67,-1.34) room=0
+  [OK] Task  360: screen_occupancy              /occupancy_30    max=0.9806 pos_s=0.9957 ori_s=0.9577 best=(-1.87,-2.39) room=0
+  [OK] Task  395: delta_control                 /closer          max=0.9632 pos_s=0.9457 ori_s=0.9916 best=(2.29,-3.40) room=1
+  [OK] Task  403: screen_occupancy              /occupancy_20    max=0.9982 pos_s=1.0000 ori_s=0.9955 best=(1.09,-2.20) room=1
+  [OK] Task  452: absolute_positioning          /front           max=0.9948 pos_s=0.9999 ori_s=0.9871 best=(2.14,-4.05) room=2
+  [FAIL] Task  485: screen_occupancy              /occupancy_50    max=0.8458 pos_s=0.8600 ori_s=0.8200 best=(1.99,-4.05) room=2
+  [OK] Task  520: absolute_positioning          /front           max=0.9810 pos_s=0.9951 ori_s=0.9596 best=(0.53,0.22) room=4
+  [FAIL] Task  595: screen_occupancy              /occupancy_70    max=0.9049 pos_s=0.9583 ori_s=0.8200 best=(-0.97,0.52) room=4
+  [OK] Task  599: fov_inclusion                 /right           max=0.9967 pos_s=1.0000 ori_s=0.9919 best=(2.00,5.09) room=5
+  [FAIL] Task  653: size_distance_invariance      /equal_size      max=0.7119 pos_s=0.6581 ori_s=0.8471 best=(-0.67,2.92) room=4
+  [FAIL] Task  677: size_distance_invariance      /equal_size      max=0.8141 pos_s=0.7976 ori_s=0.8472 best=(-0.52,2.92) room=4
+  [OK] Task  679: projective_relations          /left_of         max=0.9788 pos_s=0.9693 ori_s=0.9938 best=(-2.92,-3.59) room=0
+  [OK] Task  696: projective_relations          /right_of        max=0.9981 pos_s=1.0000 ori_s=0.9952 best=(3.28,3.64) room=6
+  [OK] Task  710: fov_inclusion                 /front           max=0.9949 pos_s=1.0000 ori_s=0.9871 best=(-2.32,-0.74) room=0
+  [OK] Task  714: fov_inclusion                 /left            max=0.9956 pos_s=1.0000 ori_s=0.9890 best=(0.49,-0.10) room=1
+  [OK] Task  720: fov_inclusion                 /back            max=0.9956 pos_s=1.0000 ori_s=0.9890 best=(0.49,-0.10) room=1
+  [OK] Task  722: equidistance                  /equidistant     max=0.9971 pos_s=0.9999 ori_s=0.9929 best=(-2.92,-3.44) room=0
+  [OK] Task  724: projective_relations          /right_of        max=0.9982 pos_s=0.9994 ori_s=0.9962 best=(2.59,-4.95) room=2
+  [OK] Task  725: occlusion_alignment           /occluded        max=0.9970 pos_s=0.9982 ori_s=0.9952 best=(2.74,-0.55) room=1
+  [OK] Task  763: equidistance                  /equidistant     max=0.9970 pos_s=0.9993 ori_s=0.9934 best=(-3.22,-1.19) room=0
+  [OK] Task  773: fov_inclusion                 /back            max=0.9979 pos_s=1.0000 ori_s=0.9948 best=(2.23,3.64) room=6
+  [OK] Task  779: fov_inclusion                 /right           max=0.9979 pos_s=1.0000 ori_s=0.9948 best=(2.23,3.64) room=6
+  [OK] Task  790: fov_inclusion                 /left            max=0.9980 pos_s=1.0000 ori_s=0.9951 best=(-2.17,3.67) room=4
+  [OK] Task  795: occlusion_alignment           /occluded        max=0.9901 pos_s=0.9956 ori_s=0.9816 best=(-2.32,-3.59) room=0
+  [OK] Task  830: fov_inclusion                 /front           max=0.9963 pos_s=1.0000 ori_s=0.9908 best=(1.39,-4.50) room=2
+  [FAIL] Task  843: projective_relations          /left_of         max=0.9408 pos_s=0.9112 ori_s=0.9912 best=(1.39,-4.35) room=2
+  [OK] Task  848: centering                     /center          max=0.9983 pos_s=0.9996 ori_s=0.9965 best=(-2.92,1.27) room=4
+  [OK] Task  849: centering                     /center          max=0.9983 pos_s=0.9996 ori_s=0.9965 best=(-2.92,1.27) room=4
+
+======================================================================
+SUMMARY BY TASK TYPE
+======================================================================
+  absolute_positioning          : min=0.9611 max=0.9981 mean=0.9866 fail=0/8
+  centering                     : min=0.9983 max=0.9983 mean=0.9983 fail=0/2
+  delta_control                 : min=0.9632 max=0.9697 mean=0.9665 fail=0/2
+  equidistance                  : min=0.9970 max=0.9971 mean=0.9970 fail=0/2
+  fov_inclusion                 : min=0.9949 max=0.9980 mean=0.9966 fail=0/8
+  occlusion_alignment           : min=0.9901 max=0.9970 mean=0.9935 fail=0/2
+  projective_relations          : min=0.9408 max=0.9982 mean=0.9790 fail=1/4
+  screen_occupancy              : min=0.6732 max=0.9982 mean=0.9124 fail=4/8
+  size_distance_invariance      : min=0.7119 max=0.8141 mean=0.7630 fail=2/2
+
+INFEASIBLE TASKS (7):
+======================================================================
+  Task 59: screen_occupancy/occupancy_50
+    max_score=0.6732, {'pos_score': 0.5683349447730317, 'ori_score': 0.982751543793703, 'room': 4}
+    params={'radius': 2.400000102670271, 'object_height': 0.7500960083007813, 'occupancy_ratio': 0.5, 'fov_vertical': 90.0, 'min_distance': 2.400000102670271}
+    desc=Position where sofa occupies 50% of vertical FOV
+  Task 163: screen_occupancy/occupancy_30
+    max_score=0.9287, {'pos_score': 0.987960636419947, 'ori_score': 0.8384335511642143, 'room': 4}
+    params={'radius': 1.4006909348052703, 'object_height': 0.6279257939584001, 'occupancy_ratio': 0.3, 'fov_vertical': 90.0, 'min_distance': 1.4006909348052703}
+    desc=Position where table occupies 30% of vertical FOV
+  Task 485: screen_occupancy/occupancy_50
+    max_score=0.8458, {'pos_score': 0.859966726974033, 'ori_score': 0.8200000000000001, 'room': 2}
+    params={'radius': 1.0136648637169676, 'object_height': 0.7535337393265773, 'occupancy_ratio': 0.5, 'fov_vertical': 90.0, 'min_distance': 1.0136648637169676}
+    desc=Position where chair occupies 50% of vertical FOV
+  Task 595: screen_occupancy/occupancy_70
+    max_score=0.9049, {'pos_score': 0.9583239301377365, 'ori_score': 0.8200000000000001, 'room': 4}
+    params={'radius': 0.6067739868164062, 'object_height': 0.6067739868164062, 'occupancy_ratio': 0.7, 'fov_vertical': 90.0, 'min_distance': 0.6067739868164062}
+    desc=Position where flowers occupies 70% of vertical FOV
+  Task 653: size_distance_invariance/equal_size
+    max_score=0.7119, {'pos_score': 0.6580561919688017, 'ori_score': 0.8470557512161988, 'room': 4}
+    params={'radius': 0.6406039519018891}
+    desc=Position where sofa and teatable appear same size
+  Task 677: size_distance_invariance/equal_size
+    max_score=0.8141, {'pos_score': 0.7975771012407732, 'ori_score': 0.8471512365464438, 'room': 4}
+    params={'radius': 0.9774254798571972}
+    desc=Position where teatable and toy_animals appear same size
+  Task 843: projective_relations/left_of
+    max_score=0.9408, {'pos_score': 0.9111906841964257, 'ori_score': 0.9911961024334806, 'room': 2}
+    params={'relation': 'left', 'min_distance': 1.278218359329252}
+    desc=Position where wall cabinet appears to the left of basin cab
+
+======================================================================
+SCREEN OCCUPANCY DETAILED ANALYSIS
+======================================================================
+
+Checking if 70% occupancy is achievable at min_distance:
+  ratio= 20% obj_h=0.649 min_d=0.897 stored_r=2.049 theoretical_r=2.049 max_occ@min=0.442 [OK]
+  ratio= 30% obj_h=0.649 min_d=0.897 stored_r=1.352 theoretical_r=1.352 max_occ@min=0.442 [OK]
+  ratio= 50% obj_h=0.649 min_d=0.897 stored_r=0.897 theoretical_r=0.784 max_occ@min=0.442 [INFEASIBLE]
+  ratio= 70% obj_h=0.649 min_d=0.897 stored_r=0.897 theoretical_r=0.530 max_occ@min=0.442 [INFEASIBLE]
+  ratio= 20% obj_h=1.537 min_d=1.549 stored_r=4.851 theoretical_r=4.851 max_occ@min=0.586 [OK]
+  ratio= 30% obj_h=1.537 min_d=1.549 stored_r=3.200 theoretical_r=3.200 max_occ@min=0.586 [OK]
+  ratio= 50% obj_h=1.537 min_d=1.549 stored_r=1.855 theoretical_r=1.855 max_occ@min=0.586 [OK]
+  ratio= 70% obj_h=1.537 min_d=1.549 stored_r=1.549 theoretical_r=1.254 max_occ@min=0.586 [INFEASIBLE]
+  ratio= 20% obj_h=0.750 min_d=2.400 stored_r=2.400 theoretical_r=2.368 max_occ@min=0.197 [OK]
+  ratio= 30% obj_h=0.750 min_d=2.400 stored_r=2.400 theoretical_r=1.562 max_occ@min=0.197 [INFEASIBLE]
+  ratio= 50% obj_h=0.750 min_d=2.400 stored_r=2.400 theoretical_r=0.905 max_occ@min=0.197 [INFEASIBLE]
+  ratio= 70% obj_h=0.750 min_d=2.400 stored_r=2.400 theoretical_r=0.612 max_occ@min=0.197 [INFEASIBLE]
+  ratio= 20% obj_h=1.744 min_d=1.744 stored_r=5.505 theoretical_r=5.505 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=1.744 min_d=1.744 stored_r=3.632 theoretical_r=3.632 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=1.744 min_d=1.744 stored_r=2.105 theoretical_r=2.105 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=1.744 min_d=1.744 stored_r=1.744 theoretical_r=1.423 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 20% obj_h=0.645 min_d=1.454 stored_r=2.037 theoretical_r=2.037 max_occ@min=0.278 [OK]
+  ratio= 50% obj_h=0.645 min_d=1.454 stored_r=1.454 theoretical_r=0.779 max_occ@min=0.278 [INFEASIBLE]
+  ratio= 30% obj_h=0.645 min_d=1.454 stored_r=1.454 theoretical_r=1.344 max_occ@min=0.278 [OK]
+  ratio= 70% obj_h=0.645 min_d=1.454 stored_r=1.454 theoretical_r=0.526 max_occ@min=0.278 [INFEASIBLE]
+  ratio= 20% obj_h=1.206 min_d=1.206 stored_r=3.807 theoretical_r=3.807 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=1.206 min_d=1.206 stored_r=2.511 theoretical_r=2.511 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=1.206 min_d=1.206 stored_r=1.456 theoretical_r=1.456 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=1.206 min_d=1.206 stored_r=1.206 theoretical_r=0.984 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 20% obj_h=0.679 min_d=0.679 stored_r=2.143 theoretical_r=2.143 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=0.679 min_d=0.679 stored_r=1.414 theoretical_r=1.414 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=0.679 min_d=0.679 stored_r=0.679 theoretical_r=0.554 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 50% obj_h=0.679 min_d=0.679 stored_r=0.819 theoretical_r=0.819 max_occ@min=0.590 [OK]
+  ratio= 20% obj_h=0.628 min_d=1.401 stored_r=1.982 theoretical_r=1.982 max_occ@min=0.281 [OK]
+  ratio= 30% obj_h=0.628 min_d=1.401 stored_r=1.401 theoretical_r=1.308 max_occ@min=0.281 [OK]
+  ratio= 50% obj_h=0.628 min_d=1.401 stored_r=1.401 theoretical_r=0.758 max_occ@min=0.281 [INFEASIBLE]
+  ratio= 70% obj_h=0.628 min_d=1.401 stored_r=1.401 theoretical_r=0.512 max_occ@min=0.281 [INFEASIBLE]
+  ratio= 20% obj_h=1.450 min_d=1.450 stored_r=4.578 theoretical_r=4.578 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=1.450 min_d=1.450 stored_r=3.020 theoretical_r=3.020 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=1.450 min_d=1.450 stored_r=1.750 theoretical_r=1.750 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=1.450 min_d=1.450 stored_r=1.450 theoretical_r=1.183 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 20% obj_h=2.400 min_d=2.400 stored_r=7.577 theoretical_r=7.577 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=2.400 min_d=2.400 stored_r=4.998 theoretical_r=4.998 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=2.400 min_d=2.400 stored_r=2.897 theoretical_r=2.897 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=2.400 min_d=2.400 stored_r=2.400 theoretical_r=1.958 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 20% obj_h=0.952 min_d=2.190 stored_r=3.007 theoretical_r=3.007 max_occ@min=0.273 [OK]
+  ratio= 30% obj_h=0.952 min_d=2.190 stored_r=2.190 theoretical_r=1.984 max_occ@min=0.273 [OK]
+  ratio= 50% obj_h=0.952 min_d=2.190 stored_r=2.190 theoretical_r=1.150 max_occ@min=0.273 [INFEASIBLE]
+  ratio= 70% obj_h=0.952 min_d=2.190 stored_r=2.190 theoretical_r=0.777 max_occ@min=0.273 [INFEASIBLE]
+  ratio= 20% obj_h=0.788 min_d=0.821 stored_r=2.488 theoretical_r=2.488 max_occ@min=0.570 [OK]
+  ratio= 30% obj_h=0.788 min_d=0.821 stored_r=1.642 theoretical_r=1.642 max_occ@min=0.570 [OK]
+  ratio= 70% obj_h=0.788 min_d=0.821 stored_r=0.821 theoretical_r=0.643 max_occ@min=0.570 [INFEASIBLE]
+  ratio= 50% obj_h=0.788 min_d=0.821 stored_r=0.951 theoretical_r=0.951 max_occ@min=0.570 [OK]
+  ratio= 20% obj_h=1.047 min_d=2.140 stored_r=3.306 theoretical_r=3.306 max_occ@min=0.306 [OK]
+  ratio= 30% obj_h=1.047 min_d=2.140 stored_r=2.181 theoretical_r=2.181 max_occ@min=0.306 [OK]
+  ratio= 50% obj_h=1.047 min_d=2.140 stored_r=2.140 theoretical_r=1.264 max_occ@min=0.306 [INFEASIBLE]
+  ratio= 70% obj_h=1.047 min_d=2.140 stored_r=2.140 theoretical_r=0.854 max_occ@min=0.306 [INFEASIBLE]
+  ratio= 30% obj_h=0.364 min_d=0.556 stored_r=0.758 theoretical_r=0.758 max_occ@min=0.403 [OK]
+  ratio= 50% obj_h=0.364 min_d=0.556 stored_r=0.556 theoretical_r=0.440 max_occ@min=0.403 [INFEASIBLE]
+  ratio= 70% obj_h=0.364 min_d=0.556 stored_r=0.556 theoretical_r=0.297 max_occ@min=0.403 [INFEASIBLE]
+  ratio= 20% obj_h=0.364 min_d=0.556 stored_r=1.150 theoretical_r=1.150 max_occ@min=0.403 [OK]
+  ratio= 20% obj_h=0.749 min_d=1.424 stored_r=2.365 theoretical_r=2.365 max_occ@min=0.328 [OK]
+  ratio= 30% obj_h=0.749 min_d=1.424 stored_r=1.561 theoretical_r=1.561 max_occ@min=0.328 [OK]
+  ratio= 70% obj_h=0.749 min_d=1.424 stored_r=1.424 theoretical_r=0.611 max_occ@min=0.328 [INFEASIBLE]
+  ratio= 50% obj_h=0.749 min_d=1.424 stored_r=1.424 theoretical_r=0.904 max_occ@min=0.328 [INFEASIBLE]
+  ratio= 20% obj_h=0.978 min_d=1.277 stored_r=3.087 theoretical_r=3.087 max_occ@min=0.465 [OK]
+  ratio= 30% obj_h=0.978 min_d=1.277 stored_r=2.037 theoretical_r=2.037 max_occ@min=0.465 [OK]
+  ratio= 50% obj_h=0.978 min_d=1.277 stored_r=1.277 theoretical_r=1.180 max_occ@min=0.465 [OK]
+  ratio= 70% obj_h=0.978 min_d=1.277 stored_r=1.277 theoretical_r=0.798 max_occ@min=0.465 [INFEASIBLE]
+  ratio= 20% obj_h=0.912 min_d=1.278 stored_r=2.878 theoretical_r=2.878 max_occ@min=0.436 [OK]
+  ratio= 30% obj_h=0.912 min_d=1.278 stored_r=1.899 theoretical_r=1.899 max_occ@min=0.436 [OK]
+  ratio= 50% obj_h=0.912 min_d=1.278 stored_r=1.278 theoretical_r=1.101 max_occ@min=0.436 [INFEASIBLE]
+  ratio= 70% obj_h=0.912 min_d=1.278 stored_r=1.278 theoretical_r=0.744 max_occ@min=0.436 [INFEASIBLE]
+  ratio= 20% obj_h=1.758 min_d=1.758 stored_r=5.548 theoretical_r=5.548 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=1.758 min_d=1.758 stored_r=3.660 theoretical_r=3.660 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=1.758 min_d=1.758 stored_r=2.122 theoretical_r=2.122 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=1.758 min_d=1.758 stored_r=1.758 theoretical_r=1.434 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 20% obj_h=0.754 min_d=1.014 stored_r=2.379 theoretical_r=2.379 max_occ@min=0.453 [OK]
+  ratio= 30% obj_h=0.754 min_d=1.014 stored_r=1.569 theoretical_r=1.569 max_occ@min=0.453 [OK]
+  ratio= 50% obj_h=0.754 min_d=1.014 stored_r=1.014 theoretical_r=0.910 max_occ@min=0.453 [OK]
+  ratio= 70% obj_h=0.754 min_d=1.014 stored_r=1.014 theoretical_r=0.615 max_occ@min=0.453 [INFEASIBLE]
+  ratio= 20% obj_h=0.541 min_d=0.541 stored_r=1.707 theoretical_r=1.707 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=0.541 min_d=0.541 stored_r=1.126 theoretical_r=1.126 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=0.541 min_d=0.541 stored_r=0.541 theoretical_r=0.441 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 50% obj_h=0.541 min_d=0.541 stored_r=0.653 theoretical_r=0.653 max_occ@min=0.590 [OK]
+  ratio= 20% obj_h=0.550 min_d=0.756 stored_r=1.736 theoretical_r=1.736 max_occ@min=0.444 [OK]
+  ratio= 50% obj_h=0.550 min_d=0.756 stored_r=0.756 theoretical_r=0.664 max_occ@min=0.444 [INFEASIBLE]
+  ratio= 70% obj_h=0.550 min_d=0.756 stored_r=0.756 theoretical_r=0.449 max_occ@min=0.444 [INFEASIBLE]
+  ratio= 30% obj_h=0.550 min_d=0.756 stored_r=1.145 theoretical_r=1.145 max_occ@min=0.444 [OK]
+  ratio= 20% obj_h=1.597 min_d=1.597 stored_r=5.042 theoretical_r=5.042 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=1.597 min_d=1.597 stored_r=3.326 theoretical_r=3.326 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=1.597 min_d=1.597 stored_r=1.928 theoretical_r=1.928 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=1.597 min_d=1.597 stored_r=1.597 theoretical_r=1.303 max_occ@min=0.590 [INFEASIBLE]
+  ratio= 20% obj_h=0.436 min_d=0.570 stored_r=1.377 theoretical_r=1.377 max_occ@min=0.466 [OK]
+  ratio= 30% obj_h=0.436 min_d=0.570 stored_r=0.908 theoretical_r=0.908 max_occ@min=0.466 [OK]
+  ratio= 50% obj_h=0.436 min_d=0.570 stored_r=0.570 theoretical_r=0.526 max_occ@min=0.466 [OK]
+  ratio= 70% obj_h=0.436 min_d=0.570 stored_r=0.570 theoretical_r=0.356 max_occ@min=0.466 [INFEASIBLE]
+  ratio= 20% obj_h=0.607 min_d=0.607 stored_r=1.916 theoretical_r=1.916 max_occ@min=0.590 [OK]
+  ratio= 30% obj_h=0.607 min_d=0.607 stored_r=1.264 theoretical_r=1.264 max_occ@min=0.590 [OK]
+  ratio= 50% obj_h=0.607 min_d=0.607 stored_r=0.732 theoretical_r=0.732 max_occ@min=0.590 [OK]
+  ratio= 70% obj_h=0.607 min_d=0.607 stored_r=0.607 theoretical_r=0.495 max_occ@min=0.590 [INFEASIBLE]

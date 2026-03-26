@@ -503,7 +503,12 @@ class QwenVLRolloutManagerService():
         position_ids_prompt = compute_position_id_with_mask(attention_mask_prompt)
         # if self.image_key in row_dict:
         if has_images:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+            # Dynamically choose get_rope_index based on model type
+            _proc_cls = type(self.processor).__name__.lower()
+            if 'qwen3' in _proc_cls:
+                from verl.models.transformers.qwen3_vl import get_rope_index
+            else:
+                from verl.models.transformers.qwen2_vl import get_rope_index
             position_ids_response = get_rope_index(
                 self.processor,
                 image_grid_thw=image_grid_thw,

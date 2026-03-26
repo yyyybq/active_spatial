@@ -14,15 +14,95 @@ from datetime import datetime
 from dataclasses import dataclass, asdict, field
 
 try:
-    from .config import PipelineConfig
+    from .config import PipelineConfig, InitialViewConfig
     from .object_selector import ObjectSelector
     from .camera_sampler import CameraSampler, CameraPose
     from .task_generator import TaskGenerator, TaskResult
 except ImportError:
-    from config import PipelineConfig
+    from config import PipelineConfig, InitialViewConfig
     from object_selector import ObjectSelector
     from camera_sampler import CameraSampler, CameraPose
     from task_generator import TaskGenerator, TaskResult
+
+
+def validate_target_reachability(task: 'TaskResult', room_polys: List[List[List[float]]]) -> bool:
+    """
+    Check if the target region is reachable from within any room polygon.
+    
+    For curve-based tasks (e.g., size_distance_invariance), this checks
+    if any of the sampled curve points lie inside a room polygon.
+    For circle-based tasks, checks if the circle intersects a room.
+    
+    Args:
+        task: The generated TaskResult
+        room_polys: List of room polygons [[x1,y1],[x2,y2],...] for each room
+        
+    Returns:
+        True if the target region is reachable from within a room
+    """
+    if not room_polys:
+        return True  # No room data, can't validate
+    
+    region = task.target_region
+    if region is None:
+        return True
+    
+    params = region.params if hasattr(region, 'params') else {}
+    region_type = region.region_type if hasattr(region, 'region_type') else None
+    
+    def point_in_poly(x, y, poly):
+        """Ray-casting point-in-polygon test."""
+        n = len(poly)
+        inside = False
+        j = n - 1
+        for i in range(n):
+            xi, yi = poly[i][0], poly[i][1]
+            xj, yj = poly[j][0], poly[j][1]
+            if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi):
+                inside = not inside
+            j = i
+        return inside
+    
+    def point_in_any_room(x, y):
+        for poly in room_polys:
+            if point_in_poly(x, y, poly):
+                return True
+        return False
+    
+    # For CURVE tasks (size_distance_invariance): check sampled curve points
+    if hasattr(region_type, 'value') and region_type.value == 'curve' or str(region_type) == 'curve':
+        curve_points = params.get("points", [])
+        if not curve_points:
+            return True
+        
+        # Check if any curve point is inside a room
+        reachable_count = 0
+        for pt in curve_points:
+            if point_in_any_room(pt[0], pt[1]):
+                reachable_count += 1
+        
+        # Require at least 10% of curve points to be reachable
+        return reachable_count >= max(1, len(curve_points) * 0.1)
+    
+    # For CIRCLE tasks: check if the circle has reachable arc segments
+    # Sample points on the circle and check
+    center = params.get("object_center", params.get("center", None))
+    radius = params.get("radius", params.get("sample_distance", None))
+    if center is not None and radius is not None:
+        center = np.array(center)
+        center_2d = center[:2] if len(center) > 2 else center
+        n_samples = 36  # Check every 10 degrees
+        reachable_count = 0
+        for i in range(n_samples):
+            theta = 2 * np.pi * i / n_samples
+            x = center_2d[0] + radius * np.cos(theta)
+            y = center_2d[1] + radius * np.sin(theta)
+            if point_in_any_room(x, y):
+                reachable_count += 1
+        # Require at least ~10% of the circle to be reachable
+        return reachable_count >= max(1, n_samples * 0.1)
+    
+    return True  # Can't determine, assume reachable
 
 
 def compute_init_position_score(
@@ -119,40 +199,94 @@ def validate_init_position(
     target_region: Dict[str, Any],
     task_type: str,
     max_init_score: float = 0.7,
-    min_distance_to_target: float = 0.5
+    min_distance_to_target: float = 0.5,
+    init_view_config: Optional[InitialViewConfig] = None,
 ) -> Tuple[bool, str, float]:
     """
     Validate that the initial camera position is not too close to the target.
     
-    A good initial position should:
-    1. Not be at or near the optimal position (score < max_init_score)
-    2. Be at least min_distance_to_target away from the sample_point
+    Enhanced with task-aware difficulty control:
+    1. Task-specific minimum distance from init to target sample_point
+    2. Task-specific maximum initial score
+    3. Minimum angular (yaw) offset between init forward and direction-to-target
+    4. Minimum estimated total navigation steps
     
     Args:
         init_pos: Initial camera position
         init_forward: Initial camera forward direction
         target_region: Target region specification
         task_type: Type of task
-        max_init_score: Maximum allowed initial score (default 0.7)
-        min_distance_to_target: Minimum distance to sample point (default 0.5m)
+        max_init_score: Maximum allowed initial score (fallback)
+        min_distance_to_target: Minimum distance to sample point (fallback)
+        init_view_config: Task-aware initial view configuration
         
     Returns:
         (is_valid, reason, score)
     """
+    # Use task-aware config if provided, else use legacy global thresholds
+    if init_view_config is not None:
+        effective_min_dist = init_view_config.get_min_distance(task_type)
+        effective_max_score = init_view_config.get_max_init_score(task_type)
+        effective_min_yaw = init_view_config.get_min_yaw_offset(task_type)
+        effective_min_steps = init_view_config.get_min_total_steps(task_type)
+    else:
+        effective_min_dist = min_distance_to_target
+        effective_max_score = max_init_score
+        effective_min_yaw = 0.0  # Legacy: no yaw check
+        effective_min_steps = 0  # Legacy: no step check
+    
     # Compute score
     score = compute_init_position_score(init_pos, init_forward, target_region, task_type)
     
-    # Check 1: Score should not be too high
-    if score > max_init_score:
-        return False, f"init_score_too_high_{score:.2f}", score
+    # Check 1: Score should not be too high (already too close to optimal)
+    if score > effective_max_score:
+        return False, f"init_score_too_high_{score:.2f}_max{effective_max_score:.2f}", score
     
-    # Check 2: Distance to sample_point
+    # Check 2: Distance to sample_point must exceed task-specific minimum
     sample_point = target_region.get("sample_point")
+    distance_to_target = float('inf')
     if sample_point is not None:
         sample_point = np.array(sample_point)
-        distance_to_target = np.linalg.norm(init_pos[:2] - sample_point[:2])
-        if distance_to_target < min_distance_to_target:
-            return False, f"too_close_to_target_{distance_to_target:.2f}m", score
+        distance_to_target = float(np.linalg.norm(init_pos[:2] - sample_point[:2]))
+        if distance_to_target < effective_min_dist:
+            return False, f"too_close_{distance_to_target:.2f}m_min{effective_min_dist:.1f}m", score
+    
+    # Check 3: Angular offset — init forward vs direction to target
+    if effective_min_yaw > 0 and sample_point is not None:
+        dir_to_target = sample_point[:2] - init_pos[:2]
+        dir_to_target_norm = np.linalg.norm(dir_to_target)
+        if dir_to_target_norm > 1e-6:
+            dir_to_target = dir_to_target / dir_to_target_norm
+            init_fwd_2d = init_forward[:2]
+            init_fwd_2d_norm = np.linalg.norm(init_fwd_2d)
+            if init_fwd_2d_norm > 1e-6:
+                init_fwd_2d = init_fwd_2d / init_fwd_2d_norm
+                cos_angle = np.clip(np.dot(init_fwd_2d, dir_to_target), -1.0, 1.0)
+                yaw_offset_deg = float(np.degrees(np.arccos(cos_angle)))
+                if yaw_offset_deg < effective_min_yaw:
+                    return False, f"yaw_offset_too_small_{yaw_offset_deg:.1f}deg_min{effective_min_yaw:.0f}deg", score
+    
+    # Check 4: Estimated total navigation steps
+    if effective_min_steps > 0 and sample_point is not None:
+        # Estimate steps: distance/0.1 + yaw_offset/5
+        distance_steps = distance_to_target / 0.1 if distance_to_target < float('inf') else 0
+        
+        dir_to_target = sample_point[:2] - init_pos[:2]
+        dir_to_target_norm = np.linalg.norm(dir_to_target)
+        yaw_steps = 0
+        if dir_to_target_norm > 1e-6:
+            dir_to_target_unit = dir_to_target / dir_to_target_norm
+            init_fwd_2d = init_forward[:2]
+            init_fwd_2d_norm = np.linalg.norm(init_fwd_2d)
+            if init_fwd_2d_norm > 1e-6:
+                init_fwd_2d = init_fwd_2d / init_fwd_2d_norm
+                cos_angle = np.clip(np.dot(init_fwd_2d, dir_to_target_unit), -1.0, 1.0)
+                yaw_offset_deg = float(np.degrees(np.arccos(cos_angle)))
+                yaw_steps = yaw_offset_deg / 5.0  # 5 degrees per turn step
+        
+        estimated_steps = distance_steps + yaw_steps
+        if estimated_steps < effective_min_steps:
+            return False, f"too_few_steps_{estimated_steps:.0f}_min{effective_min_steps}", score
     
     return True, "ok", score
 
@@ -498,6 +632,10 @@ class ActiveSpatialPipeline:
         
         data_items = []
         
+        # Load room polygons for reachability validation
+        room_polys = self.camera_sampler.load_room_polys(scene_path)
+        reachability_rejection_count = 0
+        
         # Get all valid single objects
         if needs_single or needs_pair or needs_triple:
             single_objects = self.object_selector.select_single_objects(scene_path)
@@ -526,6 +664,11 @@ class ActiveSpatialPipeline:
                         if not task.is_valid:
                             continue
                         
+                        # Validate target region is reachable from within a room
+                        if not validate_target_reachability(task, room_polys):
+                            reachability_rejection_count += 1
+                            continue
+                        
                         # NEW: Validate initial position is not too close to target
                         target_region_dict = task.target_region.to_dict() if hasattr(task.target_region, 'to_dict') else task.target_region
                         init_forward = camera_pose.target - camera_pose.position
@@ -536,8 +679,7 @@ class ActiveSpatialPipeline:
                             init_forward=init_forward,
                             target_region=target_region_dict,
                             task_type=task.task_type,
-                            max_init_score=0.7,
-                            min_distance_to_target=0.5
+                            init_view_config=self.config.initial_view,
                         )
                         
                         if not is_valid:
@@ -571,6 +713,11 @@ class ActiveSpatialPipeline:
                         if not task.is_valid:
                             continue
                         
+                        # Validate target region is reachable from within a room
+                        if not validate_target_reachability(task, room_polys):
+                            reachability_rejection_count += 1
+                            continue
+                        
                         # NEW: Validate initial position is not too close to target
                         target_region_dict = task.target_region.to_dict() if hasattr(task.target_region, 'to_dict') else task.target_region
                         init_forward = camera_pose.target - camera_pose.position
@@ -581,8 +728,7 @@ class ActiveSpatialPipeline:
                             init_forward=init_forward,
                             target_region=target_region_dict,
                             task_type=task.task_type,
-                            max_init_score=0.7,
-                            min_distance_to_target=0.5
+                            init_view_config=self.config.initial_view,
                         )
                         
                         if not is_valid:
@@ -616,6 +762,11 @@ class ActiveSpatialPipeline:
                         if not task.is_valid:
                             continue
                         
+                        # Validate target region is reachable from within a room
+                        if not validate_target_reachability(task, room_polys):
+                            reachability_rejection_count += 1
+                            continue
+                        
                         # NEW: Validate initial position is not too close to target
                         target_region_dict = task.target_region.to_dict() if hasattr(task.target_region, 'to_dict') else task.target_region
                         init_forward = camera_pose.target - camera_pose.position
@@ -626,8 +777,7 @@ class ActiveSpatialPipeline:
                             init_forward=init_forward,
                             target_region=target_region_dict,
                             task_type=task.task_type,
-                            max_init_score=0.7,
-                            min_distance_to_target=0.5
+                            init_view_config=self.config.initial_view,
                         )
                         
                         if not is_valid:
@@ -642,6 +792,8 @@ class ActiveSpatialPipeline:
         # Log rejection stats
         if init_pos_rejection_stats:
             print(f"  Init position rejections: {init_pos_rejection_stats}")
+        if reachability_rejection_count > 0:
+            print(f"  Target reachability rejections: {reachability_rejection_count}")
         
         print(f"  Generated {len(data_items)} data items")
         return data_items

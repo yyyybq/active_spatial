@@ -72,7 +72,8 @@ class ActiveSpatialEnvConfig(BaseEnvConfig):
     potential_field_orientation_weight: float = 0.3  # Weight for orientation component
     potential_field_reward_scale: float = 1.0  # Scale factor for potential field reward
     potential_field_progress_mode: str = "delta"  # "delta" (score change) or "absolute" (current score)
-    success_score_threshold: float = 0.85  # Score threshold for task success
+    success_score_threshold: float = 0.95  # Score threshold for task success
+    enable_auto_termination: bool = True  # Auto-terminate episode when score >= threshold (no need for 'done' action)
     
     # ====== Legacy Per-Step Progress Reward Configuration ======
     # (Deprecated: Use potential field instead)

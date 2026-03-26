@@ -1,0 +1,16 @@
+absolute_positioning (perfect pos+ori):
+  total=0.9951 pos=1.0000 ori=0.9877
+  fov_score=0.9385501705902599
+  dynamic_weights: pos=0.6000, ori=0.4000
+
+screen_occupancy 20% at radius=2.05m:
+  total=0.9963 pos=1.0000 ori=0.9909
+  current_occ=0.1999
+  target_occ=0.2
+  fov_score=0.9543101299864006
+
+screen_occupancy 70% at radius=0.90m:
+  total=0.8101 pos=0.7332 ori=0.9806
+  current_occ=0.4406
+  target_occ=0.7
+  fov_score=0.9031513196697428

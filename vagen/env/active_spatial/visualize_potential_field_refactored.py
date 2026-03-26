@@ -261,9 +261,16 @@ class PathPlanner:
                 # This enables path planning to optimize orientation!
                 forward = actual_forward
             else:
-                # Use direction toward object center (for heatmap visualization)
-                if self.object_center is not None:
-                    forward = self.object_center - state.position
+                # Use direction toward centroid of all target objects (for heatmap)
+                # For multi-object tasks, facing the centroid maximizes FoV inclusion
+                target_center = None
+                if len(self.all_object_centers) > 1:
+                    target_center = np.mean(self.all_object_centers, axis=0)
+                elif self.object_center is not None:
+                    target_center = self.object_center
+                
+                if target_center is not None:
+                    forward = target_center - state.position
                     forward[2] = 0  # Only horizontal direction
                     forward_norm = np.linalg.norm(forward)
                     if forward_norm > 1e-6:
@@ -501,8 +508,42 @@ class PathPlanner:
         pos_score = self.compute_score(current_state, use_actual_yaw=False)
         
         # Phase 3: Optimize orientation
-        # Turn to face target for optimal actual score
-        for _ in range(12):
+        # First, analytically compute the ideal yaw toward the target centroid,
+        # then snap to the nearest discrete step for optimal orientation score.
+        target_center = None
+        if len(self.all_object_centers) > 1:
+            target_center = np.mean(self.all_object_centers, axis=0)
+        elif self.object_center is not None:
+            target_center = self.object_center
+        
+        if target_center is not None:
+            # Compute ideal yaw toward target centroid
+            to_target = target_center[:2] - current_state.position[:2]
+            ideal_yaw = np.arctan2(to_target[1], to_target[0])
+            
+            # Find the nearest discrete yaw step
+            yaw_diff = ideal_yaw - current_state.yaw
+            # Normalize to [-pi, pi]
+            while yaw_diff > np.pi:
+                yaw_diff -= 2 * np.pi
+            while yaw_diff < -np.pi:
+                yaw_diff += 2 * np.pi
+            
+            # Number of discrete turn steps needed
+            steps_needed = round(yaw_diff / self.step_r)
+            
+            # Apply the turns
+            for _ in range(abs(steps_needed)):
+                action = "turn_left" if steps_needed > 0 else "turn_right"
+                next_state = self.apply_action(current_state, action)
+                if self.is_valid_state(next_state):
+                    path.append((action, next_state))
+                    current_state = next_state
+                else:
+                    break
+        
+        # Fine-tune with greedy search (check if left/right improves further)
+        for _ in range(4):
             current_score = self.compute_score(current_state)
             if current_score >= score_threshold:
                 break
@@ -997,7 +1038,13 @@ def compute_heatmap_using_shared_checkers(
             visibility_reasons[i, j] = 3  # visible
             valid_mask[i, j] = 1.0
             
-            forward = compute_forward_direction(camera_pos, object_center)
+            # For multi-object tasks, face the centroid of ALL target objects
+            # to maximize FoV inclusion. For single-object tasks, face the object.
+            if all_centers_to_check and len(all_centers_to_check) > 1:
+                centroid = np.mean(all_centers_to_check, axis=0)
+                forward = compute_forward_direction(camera_pos, centroid)
+            else:
+                forward = compute_forward_direction(camera_pos, object_center)
             forward_3d = np.array([forward[0], forward[1], 0])
             
             try:

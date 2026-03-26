@@ -437,37 +437,34 @@ class SpatialPotentialField:
         """
         Apply FoV penalty to scores.
         
-        IMPORTANT: Only severely penalize when objects are COMPLETELY invisible.
-        Partial visibility (objects at edge of FoV) gets mild or no penalty.
+        IMPORTANT: Only penalize orientation_score, NOT position_score.
+        Position quality should be independent of camera orientation.
+        This avoids artificially lowering the position score for multi-object
+        tasks where the heatmap forward direction may not cover all objects.
         
         Args:
-            position_score: Original position score
+            position_score: Original position score (returned UNCHANGED)
             orientation_score: Original orientation score
             fov_score: FoV visibility score (1.0 = all fully visible)
             fov_details: Details from _compute_fov_score
         
         Returns:
-            (adjusted_position_score, adjusted_orientation_score)
+            (position_score_unchanged, adjusted_orientation_score)
         """
         any_completely_invisible = fov_details.get("any_completely_invisible", False)
         
         if any_completely_invisible:
-            # SEVERE penalty when any object is completely invisible
-            # Orientation score gets major penalty (looking completely wrong direction)
+            # SEVERE orientation penalty when any object is completely invisible
             adjusted_orientation_score = orientation_score * fov_score
-            # Position score gets moderate penalty
-            adjusted_position_score = position_score * (0.5 + 0.5 * fov_score)
         elif fov_score < 1.0:
-            # Mild penalty for partial visibility (objects at edge)
-            # This is acceptable - just a gentle nudge to center objects
+            # Mild orientation penalty for partial visibility (objects at edge)
             adjusted_orientation_score = orientation_score * (0.8 + 0.2 * fov_score)
-            adjusted_position_score = position_score  # No position penalty for edge cases
         else:
             # All objects fully visible - no penalty
-            adjusted_position_score = position_score
             adjusted_orientation_score = orientation_score
         
-        return adjusted_position_score, adjusted_orientation_score
+        # position_score is NEVER penalized for FoV issues
+        return position_score, adjusted_orientation_score
     
     def compute_score(self,
                       camera_position: np.ndarray,
@@ -542,12 +539,13 @@ class SpatialPotentialField:
             pos_weight = 0.95 - (0.95 - self.base_position_weight) * t
             ori_weight = 1.0 - pos_weight
         else:
-            # Close to optimal: gradually shift to orientation
+            # Close to optimal: gradually shift to include orientation
             # At threshold: use base weights
-            # At pos_score=1.0: orientation gets more weight (up to 0.5)
+            # At pos_score=1.0: converge to 0.6/0.4 (position still dominant)
+            # This ensures total_score can reach close to 1.0 when both are high
             t = (position_score - threshold) / (1.0 - threshold + 1e-6)  # 0 to 1
-            # Interpolate from base to more balanced (0.5/0.5) at perfect position
-            pos_weight = self.base_position_weight - (self.base_position_weight - 0.5) * t
+            min_pos_weight = 0.6  # Converge to 60% position (was 50%)
+            pos_weight = self.base_position_weight - (self.base_position_weight - min_pos_weight) * t
             ori_weight = 1.0 - pos_weight
         
         return pos_weight, ori_weight
@@ -1175,16 +1173,20 @@ class SpatialPotentialField:
             size_ratio = 1.0
         
         # Score based on how close ratio is to 1
+        # Use moderate decay so the agent can achieve high score with discrete steps
+        # (agent step_translation=0.3m, Apollonius circles can be small ~0.6m radius)
         ratio_deviation = abs(np.log(size_ratio))  # log scale for symmetry
-        position_score = exponential_decay_score(ratio_deviation, decay_rate=2.0)
+        position_score = exponential_decay_score(ratio_deviation, decay_rate=1.0)
         
-        # Also check if on the Apollonius circle (if defined)
+        # Use Apollonius circle distance as secondary gradient signal only
+        # The ratio_score is the primary metric (ratio=1 iff exactly on circle)
         if "radius" in params and "center" in params:
             apollonius_center = np.array(params["center"])
             apollonius_radius = params["radius"]
             dist_to_circle = abs(distance_2d(camera_position, apollonius_center) - apollonius_radius)
             circle_score = exponential_decay_score(dist_to_circle, decay_rate=0.3)
-            position_score = 0.5 * position_score + 0.5 * circle_score
+            # Ratio score is primary (weight 0.8), circle provides gradient guide (0.2)
+            position_score = 0.8 * position_score + 0.2 * circle_score
         
         # Orientation score: Should face midpoint
         midpoint = (center_a + center_b) / 2
