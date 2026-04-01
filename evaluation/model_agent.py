@@ -68,8 +68,8 @@ class ModelAgent(BaseAgent):
                 tensor_parallel_size=self.model_config.tensor_parallel_size,
                 gpu_memory_utilization=self.model_config.gpu_memory_utilization,
                 trust_remote_code=True,
-                max_model_len=8192,
-                limit_mm_per_prompt={"image": 5},
+                max_model_len=32768,
+                limit_mm_per_prompt={"image": 25},
             )
             
             self.sampling_params = SamplingParams(

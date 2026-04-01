@@ -18,6 +18,9 @@ fi
 
 cd /scratch/by2593/project/Active_Spatial/VAGEN
 
+# Ensure ninja is on PATH (needed for gsplat CUDA JIT compilation)
+export PATH="$(python -c 'import sys; print(sys.prefix)')/bin:$PATH"
+
 STEP_NAME=$(basename "$CHECKPOINT_PATH")
 EVAL_NAME="eval_trained_${STEP_NAME}"
 OUTPUT_DIR="evaluation/outputs/${EVAL_NAME}"

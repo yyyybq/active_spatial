@@ -40,6 +40,10 @@ This repository implements **Active Spatial Intelligence** - a visual navigation
 
 ## Installation
 
+We provide two environment setups: **vagen** for Qwen2.5-VL experiments and **vagen3** for Qwen3-VL experiments.
+
+### Option A: Qwen2.5-VL Environment (vagen)
+
 ```bash
 # Create conda environment
 conda create -n vagen python=3.10 -y
@@ -54,9 +58,64 @@ git clone https://github.com/yyyybq/active_spatial.git
 cd active_spatial
 bash scripts/install.sh
 
-# Install rendering dependencies
-pip install gsplat ply_gaussian_loader
+# Install rendering dependencies (ninja, gsplat, plyfile, ply_gaussian_loader)
+# NOTE: ply_gaussian_loader is NOT a pip package — it is copied from ViewSuite.
+# ViewSuite must be cloned alongside active_spatial.
+git clone <ViewSuite_repo_url> ../ViewSuite  # if not already cloned
+bash scripts/examples/vagen_base/active_spatial/install_render_deps.sh
 ```
+
+### Option B: Qwen3-VL Environment (vagen3)
+
+Qwen3-VL requires newer versions of vllm (≥0.11.0), transformers (≥4.57.3), and PyTorch (≥2.9.0). Use the one-click install script:
+
+```bash
+# Create conda environment
+conda create -n vagen3 python=3.10 -y
+conda activate vagen3
+
+# Install Active Spatial with Qwen3-VL support
+bash scripts/install_qwen3vl.sh
+
+# Install rendering dependencies (ninja, gsplat, plyfile, ply_gaussian_loader)
+# NOTE: ply_gaussian_loader is NOT a pip package — it is copied from ViewSuite.
+bash scripts/examples/vagen_base/active_spatial/install_render_deps.sh
+```
+
+<details>
+<summary>Manual installation steps (if the script fails)</summary>
+
+```bash
+conda create -n vagen3 python=3.10 -y
+conda activate vagen3
+
+# 1. Install PyTorch 2.9.0 with CUDA 12.9
+pip install torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu129
+
+# 2. Install vllm 0.12.0 (brings transformers ≥4.57.3 automatically)
+pip install vllm==0.12.0
+
+# 3. Install verl (--no-deps to avoid downgrading vllm/transformers)
+cd verl && pip install -e . --no-deps && cd ..
+
+# 4. Install project dependencies
+pip install qwen-vl-utils mathruler matplotlib flask
+pip install gymnasium "gymnasium[toy-text]" gym gym-sokoban together
+pip install omegaconf hydra-core pandas
+pip install tensordict peft pyarrow pybind11 pylatexenc wandb codetiming torchdata
+
+# 5. Install vagen (--no-deps)
+pip install -e . --no-deps
+
+# 6. Install rendering dependencies
+# NOTE: ply_gaussian_loader is NOT a pip package.
+# Use the install script instead:
+bash scripts/examples/vagen_base/active_spatial/install_render_deps.sh
+```
+
+> **Note:** flash-attn has no prebuilt wheel for PyTorch 2.9 + Python 3.10. verl includes a built-in fallback (`flash_attn_fallback`) so training works without it.
+
+</details>
 
 ## Quick Start
 

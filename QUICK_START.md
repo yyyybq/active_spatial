@@ -10,6 +10,28 @@
 
 ---
 
+## 环境选择
+
+| 环境名 | 模型 | 核心版本 | 安装方式 |
+|--------|------|----------|----------|
+| **vagen** | Qwen2.5-VL | torch 2.6.0, vllm 0.8.2, transformers 4.49.0 | `bash scripts/install.sh` |
+| **vagen3** | Qwen3-VL | torch 2.9.0, vllm 0.12.0, transformers 4.57.6 | `bash scripts/install_qwen3vl.sh` |
+
+### Qwen3-VL 环境安装 (vagen3)
+
+```bash
+conda create -n vagen3 python=3.10 -y
+conda activate vagen3
+bash scripts/install_qwen3vl.sh
+pip install gsplat ply_gaussian_loader
+```
+
+> **注意：** 
+> - vagen3 不安装 flash-attn（无兼容预编译 wheel），verl 内置 fallback 可正常训练。
+> - verl 和 vagen 均以 `--no-deps` 方式安装，避免版本冲突。pip 的版本警告可忽略。
+
+---
+
 ## 训练模式选择
 
 Active Spatial 支持两种渲染模式，请根据你的场景选择：
@@ -331,6 +353,59 @@ tail -f logs/render_*.out
 | `format_correct_rate` | 格式正确率 | 保持 > 0.8 |
 | `action_validity_rate` | 动作有效率 | ↑ 上升 |
 | `mean_episode_length` | 平均步数 | ↓ 下降 |
+
+---
+
+## 训练曲线分析（Wandb）
+
+训练过程中的所有指标会自动上传到 [Wandb](https://wandb.ai/nyu-visionx/vagen_active_spatial)。
+使用 `scripts/analyze_wandb_run.py` 可以一键获取曲线并生成分析报告。
+
+### 查看所有实验
+
+```bash
+python scripts/analyze_wandb_run.py --list
+```
+
+### 分析指定 run
+
+```bash
+# 基本分析（打印摘要 + 诊断）
+python scripts/analyze_wandb_run.py --run_id <RUN_ID>
+
+# 完整分析 + 保存曲线图
+python scripts/analyze_wandb_run.py --run_id <RUN_ID> --save_plots
+
+# 导出 CSV 用于自定义分析
+python scripts/analyze_wandb_run.py --run_id <RUN_ID> --export csv
+
+# 示例: 分析 yr5xf955（108 steps, 最佳 run 之一）
+python scripts/analyze_wandb_run.py --run_id yr5xf955 --save_plots
+```
+
+### 脚本输出说明
+
+脚本会自动输出以下内容：
+
+1. **分阶段统计** — 将训练过程分为初始/早期/中期/后期四阶段，展示 Score、Success、Valid 等均值
+2. **关键指标变化** — 对比训练开头/结尾的关键指标，显示变化方向 (↑/↓/→)
+3. **Validation 指标** — 显示每次 val 评估的结果
+4. **详细指标表** — 每 N 步的完整指标快照
+5. **自动诊断** — 检测常见问题并给出建议：
+   - Score/Success 趋势
+   - Action validity 水平
+   - Critic 预测质量（VF explained var）
+   - 梯度稳定性
+   - Entropy 收敛速度
+   - 碰撞率
+6. **训练曲线图** — 9 宫格图表保存至 `analysis_plots/` 目录（需 `--save_plots`）
+
+### 已有实验参考
+
+| Run ID | 实验名称 | Steps | 最终 Score | 最终 Success | 状态 |
+|--------|----------|-------|------------|-------------|------|
+| `yr5xf955` | `active_spatial_ppo_env_data_update_0319` | 107 | ~0.96 | ~45% | crashed |
+| `gynymtij` | `active_spatial_ppo_4gpu_warmer` | 160 | ~1.00 | 0% (metric差异) | finished |
 
 ---
 

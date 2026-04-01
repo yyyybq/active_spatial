@@ -4,7 +4,12 @@ set -x
 # =============================================================================
 # 4-GPU Training + GPU Warmer (Stream-based, 无需 MPS)
 # =============================================================================
-# 和 run.sh 完全一样的参数，只是使用 gpu_warmer_streams.py
+# 基于 yr5xf955 (0319) 实验分析的改进版:
+#   1. entropy_coeff 0.001→0.01  防止 entropy 坍塌
+#   2. critic_warmup 0→10        Critic 预训练提升 value 预测
+#   3. save_freq 200→50          避免 crash 丢失权重
+#   4. temperature 0.7→0.9       增强探索
+#   5. grad_clip 1.0→0.5         抑制梯度 spike
 # =============================================================================
 
 # Set CUDA devices - 4 GPUs for training (0-3), 1 GPU for rendering (4)
@@ -31,7 +36,7 @@ export PATH="/scratch/by2593/miniconda3/envs/vagen/bin:$PATH"
 
 PYTHON=/scratch/by2593/miniconda3/envs/vagen/bin/python
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-EXPERIMENT_NAME="active_spatial_ppo_env_data_update_0319"
+EXPERIMENT_NAME="active_spatial_ppo_v2_0331"
 
 # 清理函数
 cleanup() {
@@ -101,6 +106,8 @@ $PYTHON -m vagen.trainer.main_ppo \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=mse \
+    actor_rollout_ref.actor.entropy_coeff=0.01 \
+    actor_rollout_ref.actor.grad_clip=0.5 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
@@ -116,8 +123,8 @@ $PYTHON -m vagen.trainer.main_ppo \
     actor_rollout_ref.rollout.limit_mm_per_prompt=15 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.top_p=0.95 \
-    actor_rollout_ref.rollout.temperature=0.7 \
+    actor_rollout_ref.rollout.top_p=0.98 \
+    actor_rollout_ref.rollout.temperature=0.9 \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
     critic.model.path=Qwen/Qwen2.5-VL-3B-Instruct \
@@ -126,13 +133,13 @@ $PYTHON -m vagen.trainer.main_ppo \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.kl_ctrl.kl_coef=0.001 \
-    trainer.critic_warmup=0 \
+    trainer.critic_warmup=10 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='vagen_active_spatial' \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=200 \
+    trainer.save_freq=50 \
     trainer.test_freq=50 \
     trainer.total_training_steps=2000 \
     rollout_manager.max_turns=12 \

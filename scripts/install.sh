@@ -40,4 +40,15 @@ pip install 'gymnasium'
 pip install "gymnasium[toy-text]"
 
 pip install together # together ai api for process reward
-echo "Installation complete, to install dependencies for other environments, refer to env/readme"
+
+echo ""
+echo "============================================"
+echo "  Active Spatial Rendering Dependencies"
+echo "============================================"
+echo "If you need local 3DGS rendering (active_spatial env), run:"
+echo "  bash scripts/examples/vagen_base/active_spatial/install_render_deps.sh"
+echo ""
+echo "This installs: ninja, gsplat, plyfile, ply_gaussian_loader"
+echo "============================================"
+echo ""
+echo "Installation complete."

@@ -9,6 +9,9 @@ CHECKPOINT_PATH=${1:-""}
 
 cd /scratch/by2593/project/Active_Spatial/VAGEN
 
+# Ensure ninja is on PATH (needed for gsplat CUDA JIT compilation)
+export PATH="$(python -c 'import sys; print(sys.prefix)')/bin:$PATH"
+
 echo "============================================================"
 echo "  Active Spatial — Full Evaluation Pipeline"
 echo "============================================================"

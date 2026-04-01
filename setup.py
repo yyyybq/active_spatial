@@ -11,6 +11,24 @@ setup(
     long_description=open("README.md", "r").read() if os.path.exists("README.md") else "",
     long_description_content_type="text/markdown",
     url="",
+    install_requires=[
+        "qwen-vl-utils",
+        "mathruler",
+        "matplotlib",
+        "flask",
+        "gym",
+        "gymnasium",
+        "together",
+        "pandas",
+        "wandb",
+    ],
+    extras_require={
+        "render": [
+            "ninja",
+            "gsplat",
+            "plyfile",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
