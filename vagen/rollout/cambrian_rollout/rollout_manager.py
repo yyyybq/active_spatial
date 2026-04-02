@@ -11,6 +11,8 @@ This replaces the QwenVLRolloutManager with Cambrian-S-specific multimodal handl
 
 from typing import List, Union, Optional, Dict, Tuple
 import copy
+import os
+import sys
 from collections import defaultdict
 import torch
 import torch.nn.functional as F
@@ -26,6 +28,17 @@ import verl.utils.torch_functional as verl_F
 from verl.utils.dataset.rl_dataset import process_image, collate_fn
 import vagen.env
 from vagen.env import REGISTERED_ENV
+
+# Cambrian-S image preprocessing utilities (anyres support)
+_CAMBRIAN_SRC = os.environ.get("CAMBRIAN_SRC", "/nas/baiqiao/cambrian-s")
+if _CAMBRIAN_SRC not in sys.path:
+    sys.path.insert(0, _CAMBRIAN_SRC)
+from cambrian.mm_utils import (
+    expand2square,
+    select_best_resolution,
+    resize_and_pad_image,
+    divide_to_patches,
+)
 
 
 # Cambrian-S constants
@@ -98,6 +111,66 @@ class CambrianRolloutManager():
         self.use_loss_mask = getattr(config, 'use_loss_mask', False)
         self.use_gae_mask = getattr(config, 'use_gae_mask', False)
         self.special_token_for_loss_mask = getattr(config, 'special_token_for_loss_mask', ['<|box_start|>', '<|box_end|>'])
+        # NFP (Next-Frame Prediction) auxiliary objective.
+        # When enabled, _generate_input_for_uptate() will additionally populate:
+        #   row_dict["nfp_pixel_values"]  (total_action_turns, C, H, W)
+        #   row_dict["nfp_loss_masks"]    (seq_len,) 1 at each action-end position
+        # These travel via DataProto.non_tensor_batch → dp_actor multi_modal_inputs
+        # → CambrianForCausalLMAdapter.forward(nfp_pixel_values=…, nfp_loss_masks=…).
+        self.use_nfp = getattr(config, 'use_nfp', False)
+
+        # Anyres configuration
+        self.image_aspect_ratio = getattr(config, 'image_aspect_ratio', 'pad')
+        self.anyres_max_subimages = getattr(config, 'anyres_max_subimages', 9)
+        # Get target resolution and image_mean from image processor
+        if self.image_processor is not None and len(self.image_processor) > 0:
+            self.target_resolution = self.image_processor[0].crop_size['height']
+            self.image_mean = getattr(self.image_processor[0], 'image_mean',
+                                      [0.48145466, 0.4578275, 0.40821073])
+        else:
+            self.target_resolution = 384
+            self.image_mean = [0.48145466, 0.4578275, 0.40821073]
+        self.bg_color = tuple(int(x * 255) for x in self.image_mean)
+        print(f"[CambrianRolloutManager] image_aspect_ratio={self.image_aspect_ratio}, "
+              f"anyres_max_subimages={self.anyres_max_subimages}, "
+              f"target_resolution={self.target_resolution}")
+
+    @torch.no_grad()
+    def _preprocess_single_image(self, img: PIL.Image.Image):
+        """Preprocess a single PIL image with anyres or pad mode.
+
+        Returns:
+            pixel_values_list: list of (C, H, W) tensors, one per sub-image
+            num_subimages: int, number of sub-images produced
+        """
+        ip = self.image_processor[0]
+
+        if self.image_aspect_ratio == 'anyres':
+            # 1. Global snapshot: expand to square, resize to target_resolution
+            snapshot = expand2square(img, self.bg_color).resize(
+                (self.target_resolution, self.target_resolution))
+
+            # 2. Anyres grid: find best resolution, resize+pad, divide into patches
+            possible_resolutions = [
+                (int(w * self.target_resolution), int(h * self.target_resolution))
+                for w in range(1, self.anyres_max_subimages + 1)
+                for h in range(1, self.anyres_max_subimages + 1)
+                if w * h <= self.anyres_max_subimages
+            ]
+            best_resolution = select_best_resolution(img.size, possible_resolutions)
+            padded_img = resize_and_pad_image(img, best_resolution, self.bg_color)
+            patches = divide_to_patches(padded_img, self.target_resolution)
+
+            subimages = [snapshot] + patches
+            pvs = [ip.preprocess(si, return_tensors='pt')['pixel_values'][0]
+                   for si in subimages]
+            return pvs, len(subimages)
+        else:
+            # "pad" mode: expand to square, resize to target_resolution
+            padded = expand2square(img, self.bg_color).resize(
+                (self.target_resolution, self.target_resolution))
+            pv = ip.preprocess(padded, return_tensors='pt')['pixel_values'][0]
+            return [pv], 1
 
     @torch.no_grad()
     def _handle_special_tokens(self, llm_raw_response: str, prep_for_loss_mask: bool) -> str:
@@ -122,13 +195,14 @@ class CambrianRolloutManager():
             image_data: List[PIL.Image.Image],
             do_embedding: bool = True,
     ) -> Tuple[str, Dict, Optional[torch.Tensor], str]:
-        """Handle multi-modal data for Cambrian-S.
+        """Handle multi-modal data for Cambrian-S with anyres/pad preprocessing.
 
-        For Cambrian-S, the <image> placeholder remains in the text.
-        After tokenization, we expand each <image> token to tokens_per_image IMAGE_TOKEN_INDEX.
-        
-        Both do_embedding=True (training) and do_embedding=False (generation) need preprocessed
-        pixel_values since we use HF-based generation (not vLLM).
+        For each image, applies the configured preprocessing (anyres or pad):
+        - "pad": expand2square + resize → 1 sub-image per image
+        - "anyres": global snapshot + grid patches → variable sub-images per image
+
+        Stores pixel_values (all sub-images stacked) and _num_subimages_per_image
+        (for token expansion) in row_dict.
         """
         assert len(image_data) == prompt_template.count('<image>'), \
             f'Number of images ({len(image_data)}) does not match number of <image> ({prompt_template.count("<image>")})'
@@ -140,13 +214,21 @@ class CambrianRolloutManager():
 
         # Always preprocess images (needed for both HF generate and FSDP training)
         if self.image_processor is not None and len(image_data) > 0:
-            # Use the first (only) vision tower's image processor for connector_only
-            ip = self.image_processor[0]
-            processed = ip.preprocess(image_data, return_tensors='pt')
-            pixel_values = processed['pixel_values']  # (num_images, C, H, W)
+            all_pixel_values = []
+            num_subimages_per_image = []
+
+            for img in image_data:
+                pvs, n_sub = self._preprocess_single_image(img)
+                all_pixel_values.extend(pvs)
+                num_subimages_per_image.append(n_sub)
+
+            pixel_values = torch.stack(all_pixel_values)  # (total_subimages, C, H, W)
             row_dict['multi_modal_inputs'] = {
                 'pixel_values': pixel_values,
             }
+            # Consumed by _generate_input_for_rollout/update for -200 expansion;
+            # NOT sent to the model (popped before DataProto creation).
+            row_dict['_num_subimages_per_image'] = num_subimages_per_image
 
         return prompt_template, row_dict, None, raw_prompt
 
@@ -411,12 +493,18 @@ class CambrianRolloutManager():
 
         # Tokenize the prompt — <image> is a single special token
         raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-        
-        # Expand each <image> token to tokens_per_image IMAGE_TOKEN_INDEX
+
+        # Expand each <image> token to the correct number of IMAGE_TOKEN_INDEX.
+        # With anyres each image may produce a different number of sub-images,
+        # so we use _num_subimages_per_image for per-image expansion.
+        num_subimages = row_dict.pop('_num_subimages_per_image', None)
         new_ids = []
+        img_idx = 0
         for tid in raw_prompt_ids:
             if tid == self.image_token_id:
-                new_ids.extend([IMAGE_TOKEN_INDEX] * self.tokens_per_image)
+                n_sub = num_subimages[img_idx] if num_subimages else 1
+                new_ids.extend([IMAGE_TOKEN_INDEX] * (n_sub * self.tokens_per_image))
+                img_idx += 1
             else:
                 new_ids.append(tid)
         
@@ -424,6 +512,25 @@ class CambrianRolloutManager():
         max_prompt_length = getattr(self.config, 'max_prompt_length', 2048)
         if len(new_ids) > max_prompt_length:
             new_ids = new_ids[-max_prompt_length:]  # Left truncation, keep recent context
+            # Remove any partial -200 image block created by the truncation.
+            # A full block has exactly tokens_per_image consecutive -200 tokens.
+            leading_img = 0
+            while leading_img < len(new_ids) and new_ids[leading_img] == IMAGE_TOKEN_INDEX:
+                leading_img += 1
+            partial = leading_img % self.tokens_per_image
+            if partial != 0:
+                new_ids = new_ids[partial:]
+            # Align pixel_values: keep only the sub-images that still have -200 blocks
+            remaining_img_tokens = sum(1 for t in new_ids if t == IMAGE_TOKEN_INDEX)
+            remaining_subimages = remaining_img_tokens // self.tokens_per_image
+            if 'multi_modal_inputs' in row_dict and remaining_subimages > 0:
+                total_pv = row_dict['multi_modal_inputs']['pixel_values'].shape[0]
+                drop = total_pv - remaining_subimages
+                if drop > 0:
+                    row_dict['multi_modal_inputs']['pixel_values'] = \
+                        row_dict['multi_modal_inputs']['pixel_values'][drop:]
+            elif 'multi_modal_inputs' in row_dict and remaining_subimages == 0:
+                del row_dict['multi_modal_inputs']
         
         # Create proper tensors for HF generation
         input_ids = torch.tensor([new_ids], dtype=torch.long)  # (1, seq_len)
@@ -477,13 +584,17 @@ class CambrianRolloutManager():
 
         # Tokenize response — <image> is a single special token
         response_token_ids = self.tokenizer.encode(response_with_chat_template, add_special_tokens=False)
-        
-        # Expand each <image> token to tokens_per_image IMAGE_TOKEN_INDEX
+
+        # Expand each <image> token to the correct number of IMAGE_TOKEN_INDEX.
+        num_subimages = row_dict.pop('_num_subimages_per_image', None)
         if has_images:
             expanded_ids = []
+            img_idx = 0
             for tid in response_token_ids:
                 if tid == self.image_token_id:
-                    expanded_ids.extend([IMAGE_TOKEN_INDEX] * self.tokens_per_image)
+                    n_sub = num_subimages[img_idx] if num_subimages else 1
+                    expanded_ids.extend([IMAGE_TOKEN_INDEX] * (n_sub * self.tokens_per_image))
+                    img_idx += 1
                 else:
                     expanded_ids.append(tid)
             response_token_ids = expanded_ids
@@ -494,8 +605,43 @@ class CambrianRolloutManager():
             # Left truncation
             if self.truncation == 'left':
                 response_token_ids = response_token_ids[-max_response_len:]
+                # Remove any partial -200 image block created by the truncation
+                leading_img = 0
+                while leading_img < len(response_token_ids) and response_token_ids[leading_img] == IMAGE_TOKEN_INDEX:
+                    leading_img += 1
+                partial = leading_img % self.tokens_per_image
+                if partial != 0:
+                    response_token_ids = response_token_ids[partial:]
             else:
                 response_token_ids = response_token_ids[:max_response_len]
+                # Remove any partial -200 image block at the end
+                trailing_img = 0
+                while trailing_img < len(response_token_ids) and response_token_ids[-(trailing_img + 1)] == IMAGE_TOKEN_INDEX:
+                    trailing_img += 1
+                partial = trailing_img % self.tokens_per_image
+                if partial != 0:
+                    response_token_ids = response_token_ids[:-partial]
+            # Align pixel_values to remaining -200 blocks
+            remaining_img_tokens = sum(1 for t in response_token_ids if t == IMAGE_TOKEN_INDEX)
+            remaining_subimages = remaining_img_tokens // self.tokens_per_image
+            if 'multi_modal_inputs' in row_dict and remaining_subimages > 0:
+                total_pv = row_dict['multi_modal_inputs']['pixel_values'].shape[0]
+                if self.truncation == 'left':
+                    drop = total_pv - remaining_subimages
+                    if drop > 0:
+                        row_dict['multi_modal_inputs']['pixel_values'] = \
+                            row_dict['multi_modal_inputs']['pixel_values'][drop:]
+                else:
+                    # Right truncation: keep first remaining_subimages
+                    row_dict['multi_modal_inputs']['pixel_values'] = \
+                        row_dict['multi_modal_inputs']['pixel_values'][:remaining_subimages]
+            elif 'multi_modal_inputs' in row_dict and remaining_subimages == 0:
+                # All images truncated — remove multi_modal_inputs
+                if 'pixel_values' in row_dict['multi_modal_inputs']:
+                    del row_dict['multi_modal_inputs']['pixel_values']
+                if not row_dict['multi_modal_inputs']:
+                    del row_dict['multi_modal_inputs']
+                has_images = False
         
         # Convert to tensor and pad
         response_len = len(response_token_ids)
@@ -571,6 +717,72 @@ class CambrianRolloutManager():
         if self.use_gae_mask:
             row_dict['gae_mask'] = loss_mask
         row_dict["end_of_response_position_mask"] = end_of_response_position_mask
+
+        # ------------------------------------------------------------------
+        # NFP (Next-Frame Prediction) data — fixed-length padding scheme
+        # ------------------------------------------------------------------
+        # For each action turn t in the trajectory, the NFP head predicts the
+        # visual features of the NEXT observation (obs_{t+1}).
+        #
+        # nfp_pixel_values: padded to (max_turns, C, H, W) per sample.
+        #   Real next-frame images occupy the first n_nfp slots; the rest are
+        #   zero-padded. After extract_multi_modal_inputs() does torch.cat(dim=0)
+        #   across the batch, shape becomes (batch_size * max_turns, C, H, W).
+        #   The adapter uses nfp_per_sample = total / bs to index per sample.
+        # nfp_loss_masks: (1, seq_len) per sample, 1 at NFP prediction sites.
+        #   Padded images have no corresponding 1 in the mask, so they are
+        #   encoded by SigLIP but never used in the loss.
+        # ------------------------------------------------------------------
+        if self.use_nfp:
+            resp_ids = input_ids_response  # (seq_len_resp,) after loss-mask shift
+            full_seq_len = input_ids.shape[-1]
+            max_nfp = self.max_turns  # fixed padding length
+
+            nfp_positions_in_resp = []
+            if has_images:
+                for pos_idx in range(1, resp_ids.shape[0]):
+                    tok_prev = resp_ids[pos_idx - 1].item()
+                    tok_curr = resp_ids[pos_idx].item()
+                    if tok_curr == IMAGE_TOKEN_INDEX and tok_prev != IMAGE_TOKEN_INDEX:
+                        nfp_positions_in_resp.append(pos_idx - 1)
+
+            n_nfp = len(nfp_positions_in_resp)
+
+            # Preprocess real NFP images (pad mode, no anyres — NFP targets
+            # are at MIV resolution so high-res patches are unnecessary)
+            nfp_pvs = []
+            if n_nfp > 0 and has_images and len(image_data) > 1:
+                nfp_images = image_data[1 : 1 + n_nfp]
+                ip = self.image_processor[0]
+                for nfp_img in nfp_images:
+                    padded = expand2square(nfp_img, self.bg_color).resize(
+                        (self.target_resolution, self.target_resolution))
+                    pv = ip.preprocess(padded, return_tensors='pt')['pixel_values'][0]
+                    nfp_pvs.append(pv)
+
+            # Pad to fixed max_nfp length with zero images
+            if nfp_pvs:
+                zero_pv = torch.zeros_like(nfp_pvs[0])
+            else:
+                zero_pv = torch.zeros(3, self.target_resolution, self.target_resolution)
+            while len(nfp_pvs) < max_nfp:
+                nfp_pvs.append(zero_pv)
+            nfp_pv = torch.stack(nfp_pvs[:max_nfp])  # (max_turns, C, H, W)
+
+            # Build nfp_loss_mask
+            nfp_loss_mask_resp = torch.zeros(resp_ids.shape[0], dtype=torch.long)
+            for nfp_pos in nfp_positions_in_resp[:len(nfp_pvs)]:
+                if nfp_pos < resp_ids.shape[0]:
+                    nfp_loss_mask_resp[nfp_pos] = 1
+            nfp_loss_mask = torch.cat([
+                torch.zeros(1, dtype=torch.long),  # prompt pad token
+                nfp_loss_mask_resp,
+            ], dim=-1)
+
+            if 'multi_modal_inputs' not in row_dict:
+                row_dict['multi_modal_inputs'] = {}
+            row_dict['multi_modal_inputs']['nfp_pixel_values'] = nfp_pv
+            row_dict['multi_modal_inputs']['nfp_loss_masks'] = nfp_loss_mask.unsqueeze(0)  # (1, seq_len)
 
         position_ids = torch.cat([position_ids_prompt, position_ids_response], dim=-1)
         row_dict['prompts'] = input_ids_prompt

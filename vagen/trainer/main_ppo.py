@@ -141,23 +141,101 @@ def main_task(config, compute_score=None):
     rollout_type = config.rollout_manager.get("rollout_type", "qwen")
     if rollout_type == "cambrian":
         from transformers import AutoConfig as _AC
+        from omegaconf import OmegaConf, open_dict
+
+        # Load model config to extract vision tower metadata
         model_config = _AC.from_pretrained(local_path, trust_remote_code=True)
-        vision_tower_names = getattr(model_config, 'vision_tower_aux_list', [])
+
+        # -----------------------------------------------------------------------
+        # Fix 1: tokens_per_image – read ground truth from the checkpoint config.
+        # The launch script sets +rollout_manager.si_token_len=729, but if it is
+        # left unset we fall back to the value baked into the model config file.
+        # We write into rollout_manager so CambrianRolloutManager picks it up.
+        # -----------------------------------------------------------------------
+        si_token_len_ckpt = getattr(model_config, "si_token_len", 729)
+        mm_use_newline_ckpt = getattr(model_config, "mm_use_im_newline_token", True)
+        with open_dict(config):
+            # Only override if the user has not set an explicit value
+            if config.rollout_manager.get("si_token_len", None) is None:
+                config.rollout_manager.si_token_len = si_token_len_ckpt
+                print(
+                    f"[CambrianSetup] si_token_len auto-set from checkpoint: {si_token_len_ckpt}"
+                )
+            else:
+                user_val = config.rollout_manager.si_token_len
+                if user_val != si_token_len_ckpt:
+                    print(
+                        f"[CambrianSetup] WARNING: si_token_len in launch script ({user_val}) "
+                        f"differs from checkpoint config ({si_token_len_ckpt}). "
+                        "Using checkpoint value to prevent embedding misalignment."
+                    )
+                    config.rollout_manager.si_token_len = si_token_len_ckpt
+
+            if config.rollout_manager.get("mm_use_im_newline_token", None) is None:
+                config.rollout_manager.mm_use_im_newline_token = mm_use_newline_ckpt
+            else:
+                user_val = config.rollout_manager.mm_use_im_newline_token
+                if user_val != mm_use_newline_ckpt:
+                    print(
+                        f"[CambrianSetup] WARNING: mm_use_im_newline_token mismatch "
+                        f"(script={user_val}, ckpt={mm_use_newline_ckpt}). "
+                        "Using checkpoint value."
+                    )
+                    config.rollout_manager.mm_use_im_newline_token = mm_use_newline_ckpt
+
+        _si = config.rollout_manager.si_token_len
+        _nl = config.rollout_manager.mm_use_im_newline_token
+        _side = int(_si ** 0.5)
+        _tpi = _side * (_side + 1) if _nl else _si
+        print(
+            f"[CambrianSetup] tokens_per_image = {_tpi} "
+            f"(si_token_len={_si}, si_side_len={_side}, newlines={_nl})"
+        )
+
+        # -----------------------------------------------------------------------
+        # Fix 2: <image> token embedding.
+        # If the checkpoint was trained with Cambrian-S (it should already have
+        # <image> in its vocab), tokenizer.vocab_size == model.config.vocab_size.
+        # If using a raw Qwen2 tokenizer that doesn't know <image>, the mismatch
+        # is detected here so the user can re-save the checkpoint after resizing.
+        # We cannot resize inside the Ray FSDP workers without a full checkpoint
+        # save/reload cycle, so we raise early rather than silently corrupt.
+        # -----------------------------------------------------------------------
+        ckpt_vocab_size = getattr(model_config, "vocab_size", None)
+        tok_vocab_size = len(tokenizer)
+        if ckpt_vocab_size is not None and ckpt_vocab_size != tok_vocab_size:
+            raise RuntimeError(
+                f"[CambrianSetup] Vocabulary size mismatch: "
+                f"tokenizer has {tok_vocab_size} tokens but checkpoint config says {ckpt_vocab_size}. "
+                "This usually means <image> was added to the tokenizer after the checkpoint was saved. "
+                "Fix: load the Cambrian-S weights, call model.resize_token_embeddings(len(tokenizer)), "
+                "then re-save the checkpoint before launching RL training."
+            )
+        print(f"[CambrianSetup] vocab size check passed: {tok_vocab_size} tokens.")
+
+        # -----------------------------------------------------------------------
+        # Fix 3: Load SigLIP image processor(s) for the rollout manager.
+        # -----------------------------------------------------------------------
+        vision_tower_names = getattr(model_config, "vision_tower_aux_list", [])
+        image_processor_list = []
         if vision_tower_names:
             from transformers import AutoImageProcessor
-            image_processor_list = []
             for vt_name in vision_tower_names:
                 try:
                     ip = AutoImageProcessor.from_pretrained(vt_name)
                     image_processor_list.append(ip)
                     print(f"[CambrianSetup] Loaded image processor from {vt_name}")
                 except Exception as e:
-                    print(f"[CambrianSetup] WARNING: Failed to load image processor from {vt_name}: {e}")
-            trainer.image_processor = image_processor_list
-            print(f"[CambrianSetup] {len(image_processor_list)} image processor(s) set on trainer")
+                    print(
+                        f"[CambrianSetup] WARNING: Failed to load image processor "
+                        f"from {vt_name}: {e}"
+                    )
         else:
             print("[CambrianSetup] WARNING: No vision_tower_aux_list in model config")
-            trainer.image_processor = None
+        trainer.image_processor = image_processor_list if image_processor_list else None
+        print(
+            f"[CambrianSetup] {len(image_processor_list)} image processor(s) set on trainer"
+        )
     
     trainer.init_workers()
     trainer.fit()

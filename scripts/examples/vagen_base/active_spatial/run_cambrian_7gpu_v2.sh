@@ -32,6 +32,9 @@ export RENDERING_GPU_ID=6
 # Ensure ninja is in PATH for Ray workers
 export PATH="/scratch/by2593/miniconda3/envs/vagen/bin:$PATH"
 
+# Cambrian-S source tree (needed by cambrian_register.py on every Ray worker)
+export CAMBRIAN_SRC="/nas/baiqiao/cambrian-s"
+
 PYTHON=/scratch/by2593/miniconda3/envs/vagen/bin/python
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 EXPERIMENT_NAME="cambrian_s_active_spatial_ppo_7gpu_v2"
@@ -145,12 +148,16 @@ $PYTHON -m vagen.trainer.main_ppo \
     trainer.total_training_steps=2000 \
     rollout_manager.max_turns=12 \
     rollout_manager.window_size=5 \
+    +rollout_manager.max_prompt_length=8192 \
+    +rollout_manager.max_trajectory_length=14000 \
     rollout_manager.use_multi_turn_reward=True \
     rollout_manager.use_loss_mask=True \
     rollout_manager.use_gae_mask=True \
     +rollout_manager.rollout_type=cambrian \
     +rollout_manager.si_token_len=729 \
     +rollout_manager.mm_use_im_newline_token=True \
+    +rollout_manager.image_aspect_ratio=anyres \
+    +rollout_manager.anyres_max_subimages=9 \
     trainer.val_before_train=False \
     trainer.val_generations_to_log_to_wandb=8 \
     rollout_manager.n_trajectory=1 \

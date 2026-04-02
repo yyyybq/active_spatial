@@ -41,7 +41,7 @@ data
 sft/output/*
 sft/data/*
 sft_configs/
-models/
+/models/
 
 # Distribution / packaging
 .Python
