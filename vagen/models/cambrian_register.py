@@ -57,14 +57,14 @@ from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification
 from transformers.generation.utils import GenerateOutput
-from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers.modeling_outputs import CausalLMOutputWithPast, TokenClassifierOutput
 
 # ---------------------------------------------------------------------------
 # 1.  Make cambrian importable
 # ---------------------------------------------------------------------------
-CAMBRIAN_SRC = os.environ.get("CAMBRIAN_SRC", "/nas/baiqiao/cambrian-s")
+CAMBRIAN_SRC = os.environ.get("CAMBRIAN_SRC", "/scratch/by2593/project/Active_Spatial/cambrian-s")
 if CAMBRIAN_SRC not in sys.path:
     sys.path.insert(0, CAMBRIAN_SRC)
 
@@ -100,6 +100,45 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
     * NFP head – optional; enabled when nfp_pixel_values is present in the batch.
     * connector_only=True assumed (no SVA cross-attention layers needed).
     """
+
+    def __init__(self, config):
+        super().__init__(config)
+        # Fix missing _attn_implementation on the inner CambrianQwenModel.
+        attn_impl = getattr(config, '_attn_implementation', 'eager')
+        inner_model = getattr(self, 'model', None)
+        if inner_model is not None and not hasattr(inner_model, '_attn_implementation'):
+            inner_model._attn_implementation = attn_impl
+
+        # ---------------------------------------------------------------------------
+        # Fix: force-load vision towers that were created with delay_load=True.
+        #
+        # CambrianQwenModel.__init__ calls build_vision_tower_aux_list(delay_load=True),
+        # so SigLipVisionTower.__init__ sets self.cfg_only but does NOT create the
+        # self.vision_tower submodule (SigLipVisionModel).  Without the submodule,
+        # from_pretrained() silently drops the 421 SigLIP keys from the checkpoint
+        # as "unexpected" — the vision encoder ends up with no weights.
+        #
+        # Calling load_model() here creates the self.vision_tower = SigLipVisionModel(…)
+        # submodule (downloading weights from HF hub as a placeholder).  Then when
+        # from_pretrained() finishes loading the checkpoint, it overwrites these
+        # placeholder weights with the ones saved in the Cambrian-S-7B-LFP checkpoint.
+        # ---------------------------------------------------------------------------
+        if inner_model is not None:
+            vt_list = getattr(inner_model, 'vision_tower_aux_list', None)
+            if vt_list is not None:
+                for vt in vt_list:
+                    if not getattr(vt, 'is_loaded', True):
+                        print(f"[cambrian_register] Force-loading vision tower: {vt.vision_tower_name}")
+                        vt.load_model()
+                    # SigLIP encoder freezes vision_tower on load (requires_grad_(False)).
+                    # FSDP with use_orig_params=False needs uniform requires_grad,
+                    # so unfreeze here — learning rate controls actual updates.
+                    vt.requires_grad_(True)
+                # Convert plain list → nn.ModuleList so model.to(device) / FSDP
+                # traverses into vision tower parameters.
+                if not isinstance(vt_list, nn.ModuleList):
+                    inner_model.vision_tower_aux_list = nn.ModuleList(vt_list)
+                    print("[cambrian_register] Converted vision_tower_aux_list → nn.ModuleList")
 
     # ------------------------------------------------------------------
     # Core image-embedding helper
@@ -457,10 +496,13 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
         #    replaced by visual features in inputs_embeds).
         #  - On decode steps 1+, prepare_inputs_for_generation drops inputs_embeds
         #    and uses only the newly generated token's input_id.
+        #  - Sanitize input_ids: replace -200 with pad_token_id so logits processors
+        #    (e.g. RepetitionPenaltyLogitsProcessor) don't crash on negative indices.
+        safe_input_ids = input_ids.clamp(min=0) if input_ids is not None else None
         from transformers import Qwen2ForCausalLM
         return Qwen2ForCausalLM.generate(
             self,
-            input_ids=input_ids,
+            input_ids=safe_input_ids,
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -496,7 +538,148 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
 # ---------------------------------------------------------------------------
 AutoModelForCausalLM.register(CambrianQwenConfig, CambrianForCausalLMAdapter, exist_ok=True)
 
+
+# ---------------------------------------------------------------------------
+# 4.  Critic model: CambrianForTokenClassification
+#     verl's CriticWorker loads the critic via AutoModelForTokenClassification.
+#     We subclass CambrianQwenForCausalLM and replace the LM head with a
+#     classification head (dropout + linear), mirroring Qwen2ForTokenClassification.
+# ---------------------------------------------------------------------------
+class CambrianForTokenClassification(CambrianQwenForCausalLM):
+    """
+    Cambrian-S model with a token classification head on top (linear layer on
+    the hidden-states output), used as the PPO value/critic model.
+
+    This replaces the LM head with:
+        dropout → Linear(hidden_size, num_labels)
+    while keeping the vision encoder + connector for multimodal understanding.
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.num_labels = getattr(config, "num_labels", 1)
+
+        # Replace the LM head with a classification head
+        classifier_dropout = getattr(config, "classifier_dropout", None)
+        if classifier_dropout is None:
+            classifier_dropout = getattr(config, "hidden_dropout", None)
+        if classifier_dropout is None:
+            classifier_dropout = 0.0
+        # hidden_dropout may be stored as string '0' by verl
+        if isinstance(classifier_dropout, str):
+            classifier_dropout = float(classifier_dropout)
+
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.score = nn.Linear(config.hidden_size, self.num_labels)
+
+        # Remove the LM head to save memory — it's not used for critic
+        if hasattr(self, "lm_head"):
+            del self.lm_head
+
+        # Fix missing _attn_implementation on the inner CambrianQwenModel.
+        attn_impl = getattr(config, '_attn_implementation', 'eager')
+        inner_model = getattr(self, 'model', None)
+        if inner_model is not None and not hasattr(inner_model, '_attn_implementation'):
+            inner_model._attn_implementation = attn_impl
+
+        # Force-load vision towers + convert to nn.ModuleList (same fix as actor).
+        if inner_model is not None:
+            vt_list = getattr(inner_model, 'vision_tower_aux_list', None)
+            if vt_list is not None:
+                for vt in vt_list:
+                    if not getattr(vt, 'is_loaded', True):
+                        print(f"[cambrian_register/critic] Force-loading vision tower: {vt.vision_tower_name}")
+                        vt.load_model()
+                    vt.requires_grad_(True)
+                if not isinstance(vt_list, nn.ModuleList):
+                    inner_model.vision_tower_aux_list = nn.ModuleList(vt_list)
+
+        self.post_init()
+
+    def get_input_embeddings(self):
+        return self.get_model().embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.get_model().embed_tokens = value
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values=None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        pixel_values: Optional[torch.FloatTensor] = None,
+        **kwargs,
+    ) -> Union[Tuple, TokenClassifierOutput]:
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        # Build inputs_embeds for multimodal input (same logic as CausalLM adapter)
+        if inputs_embeds is None:
+            has_image_tokens = (
+                input_ids is not None and (input_ids == IMAGE_TOKEN_INDEX).any()
+            )
+            if pixel_values is not None and has_image_tokens:
+                # Reuse the CausalLM adapter's multimodal embedding method
+                inputs_embeds = CambrianForCausalLMAdapter._embed_multimodal_batch(
+                    self, input_ids, pixel_values
+                )
+                input_ids = None
+            elif input_ids is not None:
+                safe_ids = input_ids.clamp(min=0)
+                inputs_embeds = self.get_model().embed_tokens(safe_ids)
+                input_ids = None
+
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        sequence_output = outputs[0]
+        sequence_output = self.dropout(sequence_output)
+        logits = self.score(sequence_output)
+
+        loss = None
+        if labels is not None:
+            from torch.nn import CrossEntropyLoss, MSELoss
+            if self.num_labels == 1:
+                loss = MSELoss()(logits.squeeze(), labels.squeeze())
+            else:
+                loss = CrossEntropyLoss()(logits.view(-1, self.num_labels), labels.view(-1))
+
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
+
+AutoModelForTokenClassification.register(
+    CambrianQwenConfig, CambrianForTokenClassification, exist_ok=True
+)
+
 print(
     "[cambrian_register] CambrianForCausalLMAdapter registered with AutoModelForCausalLM "
     f"(CAMBRIAN_SRC={CAMBRIAN_SRC})"
+)
+print(
+    "[cambrian_register] CambrianForTokenClassification registered with AutoModelForTokenClassification"
 )

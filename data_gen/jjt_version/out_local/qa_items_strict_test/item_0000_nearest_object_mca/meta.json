@@ -1,0 +1,69 @@
+{
+  "qtype": "nearest_object_mca",
+  "scene": "/data/liubinglin/jijiatong/ViewSuite/0013_840910",
+  "seed": 1051802512,
+  "question": "Which of these objects is closest to the camera?",
+  "choices_pos": [
+    null,
+    null,
+    null
+  ],
+  "meta_positions": {
+    "camera_pos": [
+      -3.699821300010205,
+      -0.05089292681243318,
+      1.0
+    ]
+  },
+  "answer": "B",
+  "choice_images": {
+    "view": "view.png"
+  },
+  "choice_text": {
+    "A": "wall lamp",
+    "B": "bed",
+    "C": "wardrobe"
+  },
+  "target": {
+    "visible_instances": [
+      {
+        "label": "wall lamp",
+        "center": [
+          -4.6348203,
+          0.89240216,
+          1.3333566000000001
+        ]
+      },
+      {
+        "label": "wardrobe",
+        "center": [
+          -2.7598209861872007,
+          0.85185695,
+          1.7499999998032987
+        ]
+      },
+      {
+        "label": "bed",
+        "center": [
+          -3.6002944,
+          0.94008124,
+          0.421451
+        ]
+      }
+    ]
+  },
+  "poses": {
+    "view": {
+      "position": [
+        -3.699821300010205,
+        -0.05089292681243318,
+        1.0
+      ],
+      "target": [
+        -3.699821300010205,
+        0.9491070731875668,
+        1.0
+      ]
+    }
+  }
+}

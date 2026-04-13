@@ -142,9 +142,21 @@ def main_task(config, compute_score=None):
     if rollout_type == "cambrian":
         from transformers import AutoConfig as _AC
         from omegaconf import OmegaConf, open_dict
+        import json as _json, os as _os
 
-        # Load model config to extract vision tower metadata
-        model_config = _AC.from_pretrained(local_path, trust_remote_code=True)
+        # Load model config to extract vision tower metadata.
+        # Also load the raw JSON as a fallback, because AutoConfig may not
+        # preserve Cambrian-specific keys (mm_vision_tower_aux_list etc.)
+        # if CambrianQwenConfig is not yet registered in this process.
+        _config_json_path = _os.path.join(local_path, "config.json")
+        with open(_config_json_path) as _f:
+            _raw_config = _json.load(_f)
+        try:
+            model_config = _AC.from_pretrained(local_path, trust_remote_code=True)
+        except (ValueError, KeyError):
+            # CambrianQwenConfig not registered – use a simple namespace
+            from types import SimpleNamespace
+            model_config = SimpleNamespace(**_raw_config)
 
         # -----------------------------------------------------------------------
         # Fix 1: tokens_per_image – read ground truth from the checkpoint config.
@@ -204,19 +216,35 @@ def main_task(config, compute_score=None):
         ckpt_vocab_size = getattr(model_config, "vocab_size", None)
         tok_vocab_size = len(tokenizer)
         if ckpt_vocab_size is not None and ckpt_vocab_size != tok_vocab_size:
-            raise RuntimeError(
-                f"[CambrianSetup] Vocabulary size mismatch: "
-                f"tokenizer has {tok_vocab_size} tokens but checkpoint config says {ckpt_vocab_size}. "
-                "This usually means <image> was added to the tokenizer after the checkpoint was saved. "
-                "Fix: load the Cambrian-S weights, call model.resize_token_embeddings(len(tokenizer)), "
-                "then re-save the checkpoint before launching RL training."
-            )
+            if tok_vocab_size > ckpt_vocab_size:
+                raise RuntimeError(
+                    f"[CambrianSetup] Vocabulary size mismatch: "
+                    f"tokenizer has {tok_vocab_size} tokens but checkpoint config says {ckpt_vocab_size}. "
+                    "Tokenizer is larger than model embeddings — this will cause index errors. "
+                    "Fix: load the Cambrian-S weights, call model.resize_token_embeddings(len(tokenizer)), "
+                    "then re-save the checkpoint before launching RL training."
+                )
+            else:
+                print(
+                    f"[CambrianSetup] WARNING: tokenizer has {tok_vocab_size} tokens but "
+                    f"checkpoint config says {ckpt_vocab_size}. "
+                    "Model embeddings have padding rows (normal for Qwen2.5). Proceeding."
+                )
         print(f"[CambrianSetup] vocab size check passed: {tok_vocab_size} tokens.")
 
         # -----------------------------------------------------------------------
         # Fix 3: Load SigLIP image processor(s) for the rollout manager.
         # -----------------------------------------------------------------------
-        vision_tower_names = getattr(model_config, "vision_tower_aux_list", [])
+        vision_tower_names = getattr(
+            model_config, "mm_vision_tower_aux_list",
+            getattr(model_config, "vision_tower_aux_list", [])
+        )
+        # Fallback: read directly from raw JSON if getattr missed it
+        if not vision_tower_names:
+            vision_tower_names = _raw_config.get(
+                "mm_vision_tower_aux_list",
+                _raw_config.get("vision_tower_aux_list", [])
+            )
         image_processor_list = []
         if vision_tower_names:
             from transformers import AutoImageProcessor

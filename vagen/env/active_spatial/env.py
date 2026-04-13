@@ -176,6 +176,9 @@ class ActiveSpatialEnv(BaseEnv):
         self.collision_count: int = 0
         self.last_collision_result: Optional[CollisionResult] = None
         
+        # Consecutive invalid action tracking
+        self.consecutive_invalid_count: int = 0
+        
         # Visibility Checker for ensuring target is actually visible
         self.visibility_checker: Optional[VisibilityChecker] = None
         if config.enable_visibility_check:
@@ -367,6 +370,9 @@ class ActiveSpatialEnv(BaseEnv):
         self.collision_count = 0
         self.last_collision_result = None
         
+        # Reset consecutive invalid action tracking
+        self.consecutive_invalid_count = 0
+        
         # Reset visibility tracking
         self.prev_visibility = None
         
@@ -482,6 +488,14 @@ class ActiveSpatialEnv(BaseEnv):
         action_list = rst["actions"]
         format_correct = rst["format_correct"]
         
+        # --- Temporary logging: print model output for debugging ---
+        import random as _rnd
+        if _rnd.random() < 0.05:  # Log ~5% of steps to avoid flooding
+            _preview = action_str[:500].replace('\n', '\\n')
+            print(f"[ENV_DEBUG] step={self._current_step} valid={len(action_list) > 0 and format_correct} "
+                  f"actions={action_list} format_ok={format_correct} "
+                  f"response_preview={_preview}", flush=True)
+        
         # Metrics structure compatible with VAGEN BaseEnv expectations
         metrics = {
             "turn_metrics": {
@@ -507,6 +521,7 @@ class ActiveSpatialEnv(BaseEnv):
         
         # Execute valid actions
         if metrics["turn_metrics"]["action_is_valid"]:
+            self.consecutive_invalid_count = 0  # Reset on valid action
             for action in action_list:
                 action_lower = action.lower()
                 
@@ -578,7 +593,16 @@ class ActiveSpatialEnv(BaseEnv):
             self.reward += self.config.format_reward
             info["is_format_rewarded"] = True
         else:
+            # Penalize invalid format and track consecutive failures
+            self.reward = self.config.invalid_format_penalty
+            self.consecutive_invalid_count += 1
             info["is_format_rewarded"] = False
+            
+            # Early termination after too many consecutive invalid actions
+            if self.consecutive_invalid_count >= self.config.max_consecutive_invalid_actions:
+                done = True
+                self.episode_done = True
+                info["early_terminated_invalid"] = True
         
         # Build collision feedback message
         if step_collisions:

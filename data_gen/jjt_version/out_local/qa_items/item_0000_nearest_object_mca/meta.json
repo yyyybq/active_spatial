@@ -1,0 +1,18 @@
+{
+  "qtype": "nearest_object_mca",
+  "scene": "/data/liubinglin/jijiatong/ViewSuite/0013_840910",
+  "seed": 1051802512,
+  "question": "Which of these objects is closest to the camera?",
+  "choices_pos": [
+    null,
+    null,
+    null
+  ],
+  "meta_positions": {
+    "camera_pos": [
+      -3.699821300010205,
+      -0.05089292681243318,
+      1.0
+    ]
+  }
+}

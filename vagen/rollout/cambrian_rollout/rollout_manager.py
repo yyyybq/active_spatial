@@ -30,7 +30,7 @@ import vagen.env
 from vagen.env import REGISTERED_ENV
 
 # Cambrian-S image preprocessing utilities (anyres support)
-_CAMBRIAN_SRC = os.environ.get("CAMBRIAN_SRC", "/nas/baiqiao/cambrian-s")
+_CAMBRIAN_SRC = os.environ.get("CAMBRIAN_SRC", "/scratch/by2593/project/Active_Spatial/cambrian-s")
 if _CAMBRIAN_SRC not in sys.path:
     sys.path.insert(0, _CAMBRIAN_SRC)
 from cambrian.mm_utils import (
@@ -124,8 +124,16 @@ class CambrianRolloutManager():
         self.anyres_max_subimages = getattr(config, 'anyres_max_subimages', 9)
         # Get target resolution and image_mean from image processor
         if self.image_processor is not None and len(self.image_processor) > 0:
-            self.target_resolution = self.image_processor[0].crop_size['height']
-            self.image_mean = getattr(self.image_processor[0], 'image_mean',
+            _ip = self.image_processor[0]
+            if hasattr(_ip, 'crop_size'):
+                self.target_resolution = _ip.crop_size['height']
+            elif hasattr(_ip, 'size'):
+                # SiglipImageProcessor uses 'size' instead of 'crop_size'
+                _sz = _ip.size
+                self.target_resolution = _sz.get('height', _sz.get('shortest_edge', 384))
+            else:
+                self.target_resolution = 384
+            self.image_mean = getattr(_ip, 'image_mean',
                                       [0.48145466, 0.4578275, 0.40821073])
         else:
             self.target_resolution = 384
@@ -899,8 +907,13 @@ class CambrianRolloutManager():
             if self.use_multi_turn_reward:
                 end_of_response_position_mask = row_dict['end_of_response_position_mask']
                 reward_positions = torch.nonzero(end_of_response_position_mask).squeeze(-1)
-                last_reward_index = reward_positions[-1]
-                row_dict['multi_turn_token_level_rewards'][last_reward_index] += last_reward
+                if reward_positions.numel() > 0:
+                    last_reward_index = reward_positions[-1]
+                    row_dict['multi_turn_token_level_rewards'][last_reward_index] += last_reward
+                else:
+                    # All reward positions were truncated; place reward at end of sequence
+                    seq_len = row_dict['multi_turn_token_level_rewards'].shape[0]
+                    row_dict['multi_turn_token_level_rewards'][seq_len - 1] += last_reward
             batch_list.append(row_dict)
         batch_dict = collate_fn(batch_list)
         batch = DataProto.from_single_dict(batch_dict)

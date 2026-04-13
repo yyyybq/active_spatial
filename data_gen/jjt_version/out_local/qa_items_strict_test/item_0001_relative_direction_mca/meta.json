@@ -1,0 +1,47 @@
+{
+  "qtype": "relative_direction_mca",
+  "scene": "/data/liubinglin/jijiatong/ViewSuite/0013_840910",
+  "seed": 107420369,
+  "question": "If standing at the camera view, is the curtain to the left, right, front or back?",
+  "choices_pos": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "meta_positions": {
+    "camera_pos": [
+      -4.345573999999999,
+      1.6411688,
+      0.9
+    ]
+  },
+  "answer": "B",
+  "choice_images": {
+    "view": "view.png"
+  },
+  "choice_text": {
+    "A": "back",
+    "B": "front",
+    "C": "right",
+    "D": "left"
+  },
+  "target": {
+    "id": "393",
+    "label": "curtain"
+  },
+  "poses": {
+    "view": {
+      "position": [
+        -4.345573999999999,
+        1.6411688,
+        0.9
+      ],
+      "target": [
+        -4.345573999999999,
+        1.6411688,
+        1.9
+      ]
+    }
+  }
+}

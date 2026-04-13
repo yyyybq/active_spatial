@@ -9,4 +9,5 @@ CRITIC_WARMUP=10           # 0→10        先训练 Critic 10 步
 GRAD_CLIP="0.5"            # 1.0→0.5     抑制梯度 spike
 TEMPERATURE="0.9"          # 0.7→0.9     增强采样多样性
 TOP_P="0.98"               # 0.95→0.98
+SAVE_FREQ=20               # 50→20       更频繁保存 checkpoint
 # GPU_MEM_UTIL 使用默认 0.5（配合 enforce_eager=False 不会 OOM）

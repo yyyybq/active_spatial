@@ -4,9 +4,9 @@ set -x
 # =============================================================================
 # 通用 PPO 训练入口 - 通过实验配置文件驱动
 # =============================================================================
-# 用法:
-#   bash run_experiment.sh experiments/v2_entropy_fix.sh
-#   bash run_experiment.sh experiments/v3_multi_scene.sh
+# 用法 (从项目根目录 VAGEN/ 下运行):
+#   nohup bash scripts/examples/vagen_base/active_spatial/run_experiment.sh v5_entropy_balanced.sh > v5_entropy_balanced.log 2>&1 &
+#   nohup bash scripts/examples/vagen_base/active_spatial/run_experiment.sh v2_entropy_fix.sh > v2_entropy_fix.log 2>&1 &
 #
 # 实验配置文件只需 override 你要改的参数，其余走 baseline 默认值
 # =============================================================================
@@ -97,12 +97,10 @@ source "$EXPERIMENT_CONFIG"
 # ========================= ENVIRONMENT SETUP =========================
 # 构建 CUDA_VISIBLE_DEVICES
 GPU_LIST=$(seq -s, 0 $((NUM_TRAIN_GPUS - 1)))
-if [ "$USE_GPU_HOLDER" = true ]; then
-    export CUDA_VISIBLE_DEVICES="${GPU_LIST},${RENDERING_GPU}"
-else
-    export CUDA_VISIBLE_DEVICES="${GPU_LIST}"
-fi
+# 渲染 GPU 始终需要对进程可见
+export CUDA_VISIBLE_DEVICES="${GPU_LIST},${RENDERING_GPU}"
 
+export PYTHONUNBUFFERED=1
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export PYTHONHASHSEED=0
 export TRANSFORMERS_ATTN_IMPLEMENTATION=eager

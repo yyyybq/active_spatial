@@ -33,7 +33,7 @@ export RENDERING_GPU_ID=6
 export PATH="/scratch/by2593/miniconda3/envs/vagen/bin:$PATH"
 
 # Cambrian-S source tree (needed by cambrian_register.py on every Ray worker)
-export CAMBRIAN_SRC="/nas/baiqiao/cambrian-s"
+export CAMBRIAN_SRC="${CAMBRIAN_SRC:-/scratch/by2593/project/Active_Spatial/cambrian-s}"
 
 PYTHON=/scratch/by2593/miniconda3/envs/vagen/bin/python
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -75,12 +75,12 @@ $PYTHON -m vagen.env.create_dataset \
     --train_path "data/$EXPERIMENT_NAME/train.parquet" \
     --test_path "data/$EXPERIMENT_NAME/test.parquet"
 
-# GPU 6 (rendering): occupy up to 75%
+# GPU 6 (rendering): occupy up to 90%
 if [ -f "$SCRIPT_DIR/gpu_holder.py" ]; then
-    HOLDER_GPU=6 HOLDER_MEM_FRAC=0.75 HOLDER_TARGET=75 \
+    HOLDER_GPU=6 HOLDER_MEM_FRAC=0.75 HOLDER_TARGET=90 \
         $PYTHON "$SCRIPT_DIR/gpu_holder.py" &
     GPU_HOLDER_PID=$!
-    echo "GPU Holder started for GPU 6, target=75%, PID=$GPU_HOLDER_PID"
+    echo "GPU Holder started for GPU 6, target=90%, PID=$GPU_HOLDER_PID"
 
     # GPU 0-5 (training): fill to 75% between training steps
     for GPU_ID in 0 1 2 3 4 5; do
@@ -100,23 +100,23 @@ $PYTHON -m vagen.trainer.main_ppo \
     data.val_batch_size=6 \
     data.max_prompt_length=2048 \
     data.max_response_length=512 \
-    data.max_trajectory_length=14000 \
+    data.max_trajectory_length=18000 \
     data.image_key=images \
     data.truncation=left \
     +data.dataloader_num_workers=0 \
     actor_rollout_ref.model.path=$CAMBRIAN_MODEL_PATH \
     actor_rollout_ref.model.external_lib=vagen.models.cambrian_register \
-    actor_rollout_ref.model.trust_remote_code=True \
+    +actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=12 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=6 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=mse \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    actor_rollout_ref.actor.fsdp_config.param_offload=True \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+    actor_rollout_ref.actor.fsdp_config.param_offload=False \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=hf \
@@ -124,14 +124,14 @@ $PYTHON -m vagen.trainer.main_ppo \
     actor_rollout_ref.rollout.temperature=0.7 \
     actor_rollout_ref.rollout.top_p=0.95 \
     actor_rollout_ref.rollout.response_length=512 \
-    actor_rollout_ref.rollout.micro_batch_size=1 \
+    +actor_rollout_ref.rollout.micro_batch_size=1 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.ref.fsdp_config.param_offload=False \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=False \
     critic.model.path=$CAMBRIAN_MODEL_PATH \
     critic.model.external_lib=vagen.models.cambrian_register \
-    critic.model.trust_remote_code=True \
+    +critic.model.trust_remote_code=True \
     critic.model.enable_gradient_checkpointing=True \
     critic.ppo_micro_batch_size_per_gpu=1 \
     critic.model.fsdp_config.param_offload=False \
@@ -143,13 +143,13 @@ $PYTHON -m vagen.trainer.main_ppo \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=6 \
     trainer.nnodes=1 \
-    trainer.save_freq=200 \
+    trainer.save_freq=50 \
     trainer.test_freq=50 \
     trainer.total_training_steps=2000 \
     rollout_manager.max_turns=12 \
     rollout_manager.window_size=5 \
     +rollout_manager.max_prompt_length=8192 \
-    +rollout_manager.max_trajectory_length=14000 \
+    ++rollout_manager.max_trajectory_length=18000 \
     rollout_manager.use_multi_turn_reward=True \
     rollout_manager.use_loss_mask=True \
     rollout_manager.use_gae_mask=True \

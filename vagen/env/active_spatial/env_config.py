@@ -100,6 +100,10 @@ class ActiveSpatialEnvConfig(BaseEnvConfig):
     collision_penalty: float = -0.15  # Penalty for collision attempts
     collision_invalidate_action: bool = True  # If True, collision actions don't move camera
     
+    # ====== Invalid Action Configuration ======
+    invalid_format_penalty: float = -0.1  # Penalty for invalid format/actions
+    max_consecutive_invalid_actions: int = 3  # Terminate episode after this many consecutive invalid actions
+    
     # ====== Visibility & Occlusion Configuration ======
     # Ensures the agent can actually SEE the target, not just reach correct position
     enable_visibility_check: bool = True  # Enable visibility-based rewards
