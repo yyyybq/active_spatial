@@ -101,6 +101,13 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
     * connector_only=True assumed (no SVA cross-attention layers needed).
     """
 
+    # Override Qwen2ForCausalLM._tied_weights_keys = ["lm_head.weight"].
+    # Cambrian-S has tie_word_embeddings=False: lm_head and embed_tokens are
+    # separate parameters with different learned values.  Leaving the parent's
+    # _tied_weights_keys causes from_pretrained() / tie_weights() to alias
+    # lm_head.weight → embed_tokens.weight, destroying the lm_head.
+    _tied_weights_keys = []
+
     def __init__(self, config):
         super().__init__(config)
         # Fix missing _attn_implementation on the inner CambrianQwenModel.
@@ -180,15 +187,54 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
 
         batch_size = input_ids.shape[0]
 
+        # --- DEBUG: check vision tower weights (first call only) ---------------
+        _do_debug = not hasattr(self, '_embed_debug_done')
+        if _do_debug:
+            self._embed_debug_done = True
+        import os as _os
+        _dbg_dir = "/scratch/by2593/project/Active_Spatial/VAGEN/_cambrian_debug"
+        _os.makedirs(_dbg_dir, exist_ok=True)
+        _rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
+        def _dlog(msg):
+            if not _do_debug:
+                return
+            with open(_os.path.join(_dbg_dir, f"embed_rank{_rank}.log"), "a") as _f:
+                _f.write(msg + "\n"); _f.flush()
+
+        _dlog(f"[_embed] input_ids={input_ids.shape}, pixel_values={pixel_values.shape}, device={pixel_values.device}")
+        if _do_debug:
+            vt_list = self.get_model().get_vision_tower_aux_list()
+            if vt_list:
+                vt0 = vt_list[0]
+                for name, p in vt0.named_parameters():
+                    _dlog(f"[_embed] VT param '{name}': shape={p.shape}, dtype={p.dtype}, "
+                          f"device={p.device}, mean={p.float().mean().item():.6f}, "
+                          f"std={p.float().std().item():.6f}, has_nan={p.isnan().any().item()}")
+                    break
+
+        _dlog(f"[_embed] pixel_values stats: mean={pixel_values.float().mean().item():.4f}, "
+              f"std={pixel_values.float().std().item():.4f}, min={pixel_values.min().item():.4f}, "
+              f"max={pixel_values.max().item():.4f}")
+
         # --- 1. Encode images ------------------------------------------------
         image_aux_features_list = self.encode_images([pixel_values])
         image_features = image_aux_features_list[0]  # (total_imgs, si_token_len, vis_dim)
+
+        _dlog(f"[_embed] After encode: shape={image_features.shape}, "
+              f"mean={image_features.float().mean().item():.6f}, "
+              f"std={image_features.float().std().item():.6f}, "
+              f"has_nan={image_features.isnan().any().item()}")
 
         # --- 2. Project -------------------------------------------------------
         proj_weight_dtype = self.get_model().mm_projector[0].weight.dtype
         image_features = self.get_model().mm_projector(
             image_features.to(proj_weight_dtype)
         ).to(pixel_values.dtype)  # (total_imgs, si_token_len, hidden_dim)
+
+        _dlog(f"[_embed] After project: shape={image_features.shape}, "
+              f"mean={image_features.float().mean().item():.6f}, "
+              f"std={image_features.float().std().item():.6f}, "
+              f"has_nan={image_features.isnan().any().item()}")
 
         # --- 3. Append newline tokens ----------------------------------------
         if mm_use_newline:
@@ -216,6 +262,10 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
         safe_ids = input_ids.clamp(min=0)
         token_embeds = self.get_model().embed_tokens(safe_ids)  # (bs, seq_len, hidden_dim)
 
+        _dlog(f"[_embed] token_embeds: shape={token_embeds.shape}, "
+              f"mean={token_embeds.float().mean().item():.6f}, "
+              f"std={token_embeds.float().std().item():.6f}")
+
         # --- 5. Scatter visual features into image positions ------------------
         img_global_idx = 0
         for b in range(batch_size):
@@ -236,6 +286,10 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
                     image_features[img_global_idx].to(token_embeds.dtype)
                 )
                 img_global_idx += 1
+
+        _dlog(f"[_embed] After scatter: token_embeds mean={token_embeds.float().mean().item():.6f}, "
+              f"std={token_embeds.float().std().item():.6f}, "
+              f"n_images_scattered={img_global_idx}")
 
         return token_embeds  # (bs, seq_len, hidden_dim)
 
@@ -499,6 +553,60 @@ class CambrianForCausalLMAdapter(CambrianQwenForCausalLM):
         #  - Sanitize input_ids: replace -200 with pad_token_id so logits processors
         #    (e.g. RepetitionPenaltyLogitsProcessor) don't crash on negative indices.
         safe_input_ids = input_ids.clamp(min=0) if input_ids is not None else None
+
+        # --- DEBUG: log stats before generate (first call only per rank) ---
+        if not hasattr(self, '_generate_debug_done'):
+            self._generate_debug_done = True
+            import os as _os2
+            _dbg_dir2 = "/scratch/by2593/project/Active_Spatial/VAGEN/_cambrian_debug"
+            _os2.makedirs(_dbg_dir2, exist_ok=True)
+            _rank2 = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
+            def _glog(msg):
+                with open(_os2.path.join(_dbg_dir2, f"generate_rank{_rank2}.log"), "a") as _f:
+                    _f.write(msg + "\n"); _f.flush()
+            _glog(f"[generate] pixel_values={'None' if pixel_values is None else pixel_values.shape}, "
+                  f"inputs_embeds={inputs_embeds.shape if inputs_embeds is not None else None}, "
+                  f"safe_input_ids={safe_input_ids.shape if safe_input_ids is not None else None}")
+            if inputs_embeds is not None:
+                _glog(f"[generate] inputs_embeds stats: mean={inputs_embeds.float().mean().item():.6f}, "
+                      f"std={inputs_embeds.float().std().item():.6f}, "
+                      f"has_nan={inputs_embeds.isnan().any().item()}, "
+                      f"has_inf={inputs_embeds.isinf().any().item()}")
+            # Check lm_head weight
+            lm_head = self.lm_head
+            _glog(f"[generate] lm_head.weight: shape={lm_head.weight.shape}, "
+                  f"mean={lm_head.weight.float().mean().item():.6f}, "
+                  f"std={lm_head.weight.float().std().item():.6f}, "
+                  f"has_nan={lm_head.weight.isnan().any().item()}")
+            # Check embed_tokens weight
+            emb_w = self.get_model().embed_tokens.weight
+            _glog(f"[generate] embed_tokens.weight: shape={emb_w.shape}, "
+                  f"mean={emb_w.float().mean().item():.6f}, "
+                  f"std={emb_w.float().std().item():.6f}, "
+                  f"has_nan={emb_w.isnan().any().item()}")
+            # Check a decoder layer weight (layer 0 self_attn q_proj)
+            try:
+                layer0_q = self.get_model().layers[0].self_attn.q_proj.weight
+                _glog(f"[generate] layer0.q_proj.weight: shape={layer0_q.shape}, "
+                      f"mean={layer0_q.float().mean().item():.6f}, "
+                      f"std={layer0_q.float().std().item():.6f}, "
+                      f"has_nan={layer0_q.isnan().any().item()}")
+            except Exception as e:
+                _glog(f"[generate] layer0.q_proj check failed: {e}")
+            # Quick forward pass test
+            try:
+                test_ids = safe_input_ids[:1, :5]
+                with torch.no_grad():
+                    test_out = self(input_ids=test_ids, use_cache=False, return_dict=True)
+                    test_logits = test_out.logits.float()
+                    _glog(f"[generate] LOGITS SANITY: shape={test_logits.shape}, "
+                          f"mean={test_logits.mean().item():.4f}, "
+                          f"std={test_logits.std().item():.4f}, "
+                          f"top5_tokens={test_logits[0, -1].topk(5).indices.tolist()}, "
+                          f"top5_probs={[f'{p:.4f}' for p in test_logits[0, -1].softmax(-1).topk(5).values.tolist()]}")
+            except Exception as e:
+                _glog(f"[generate] LOGITS SANITY check failed: {e}")
+
         from transformers import Qwen2ForCausalLM
         return Qwen2ForCausalLM.generate(
             self,
@@ -554,6 +662,8 @@ class CambrianForTokenClassification(CambrianQwenForCausalLM):
         dropout → Linear(hidden_size, num_labels)
     while keeping the vision encoder + connector for multimodal understanding.
     """
+
+    _tied_weights_keys = []
 
     def __init__(self, config):
         super().__init__(config)

@@ -327,6 +327,14 @@ def compute_data_metrics(batch, use_critic=True):
     prompt_mask = batch.batch['attention_mask'][:, :-max_response_length].bool()
     response_mask = batch.batch['attention_mask'][:, -max_response_length:].bool()
 
+    # Use gae_mask (loss_mask) for critic metrics if available, since returns/advantages
+    # are only computed at loss_mask positions in masked_gae. Using attention_mask would
+    # include env-observation tokens where returns=0 but values!=0, distorting vf_explained_var.
+    if 'gae_mask' in batch.batch:
+        critic_mask = batch.batch['gae_mask'][:, -max_response_length:].bool()
+    else:
+        critic_mask = response_mask
+
     max_prompt_length = prompt_mask.size(-1)
 
     
@@ -334,12 +342,12 @@ def compute_data_metrics(batch, use_critic=True):
     prompt_length = response_info['prompt_length']
     response_length = response_info['response_length']
 
-    valid_adv = torch.masked_select(advantages, response_mask)
-    valid_returns = torch.masked_select(returns, response_mask)
+    valid_adv = torch.masked_select(advantages, critic_mask)
+    valid_returns = torch.masked_select(returns, critic_mask)
 
     if use_critic:
         values = batch.batch['values']
-        valid_values = torch.masked_select(values, response_mask)
+        valid_values = torch.masked_select(values, critic_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
 
@@ -717,8 +725,9 @@ class RayPPOTrainer(object):
         else:
             columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
 
-        if not hasattr(self, 'validation_table'):
-            # Initialize the table on first call
+        if not hasattr(self, 'validation_table') or len(self.validation_table.columns) != len(columns):
+            # Initialize the table on first call, or reset if column count changed
+            # (column count can change when max_images_per_sample varies across validations)
             self.validation_table = wandb.Table(columns=columns)
 
         # Create a new table with same columns and existing data

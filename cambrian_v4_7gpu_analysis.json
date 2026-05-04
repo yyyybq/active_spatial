@@ -1,0 +1,66 @@
+{
+  "experiment_log": "/scratch/by2593/project/Active_Spatial/VAGEN/cambrian_v4_7gpu.log",
+  "wandb_root": "/scratch/by2593/project/Active_Spatial/VAGEN/wandb",
+  "run_match": {
+    "run_id": "lky5g4xb",
+    "run_dir_name": "run-20260424_031750-lky5g4xb",
+    "run_dir_path": "/scratch/by2593/project/Active_Spatial/VAGEN/wandb/run-20260424_031750-lky5g4xb",
+    "confidence": "high"
+  },
+  "metrics_source": "/scratch/by2593/project/Active_Spatial/VAGEN/wandb/run-20260424_031750-lky5g4xb/files/output.log",
+  "parsed_step_count": 49,
+  "metric_summaries": {
+    "train_score": {
+      "early_mean": -0.3871875,
+      "mid_mean": -0.4021875,
+      "late_mean": -0.40005882352941174,
+      "delta_late_vs_early": -0.012871323529411727,
+      "trend": "down"
+    },
+    "train_success": {
+      "early_mean": 0.010375,
+      "mid_mean": 0.018687500000000003,
+      "late_mean": 0.015647058823529413,
+      "delta_late_vs_early": 0.005272058823529413,
+      "trend": "up"
+    },
+    "critic_vf_loss": {
+      "early_mean": 1.3816875,
+      "mid_mean": 0.1628125,
+      "late_mean": 0.07364705882352941,
+      "delta_late_vs_early": -1.3080404411764706,
+      "trend": "down"
+    },
+    "actor_pg_loss": null,
+    "actor_entropy_loss": null,
+    "kl": null,
+    "total_collisions": {
+      "early_mean": 2.0894375,
+      "mid_mean": 2.3270625,
+      "late_mean": 2.206,
+      "delta_late_vs_early": 0.11656250000000012,
+      "trend": "up"
+    },
+    "response_length_mean": {
+      "early_mean": 635.13125,
+      "mid_mean": 637.8311874999999,
+      "late_mean": 648.0431764705883,
+      "delta_late_vs_early": 12.911926470588242,
+      "trend": "up"
+    },
+    "reward_related": {
+      "early_mean": -0.3234375,
+      "mid_mean": -0.3274375,
+      "late_mean": -0.328,
+      "delta_late_vs_early": -0.004562500000000025,
+      "trend": "down"
+    }
+  },
+  "garble_counts": {
+    "replacement_char_count": 0,
+    "escaped_hex_count": 0,
+    "mojibake_marker_count": 0,
+    "left_truncation_warning_count": 714,
+    "suspicious_preview_count": 0
+  }
+}

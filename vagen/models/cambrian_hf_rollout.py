@@ -80,7 +80,12 @@ class CambrianHFRollout(BaseRollout):
         top_k = max(0, top_k)
 
         temperature = prompts.meta_info.get('temperature', self.config.temperature)
-        generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
+        generation_config = GenerationConfig(
+            do_sample=do_sample,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k
+        )
 
         # Extract pixel_values from non_tensor_batch if available
         pixel_values = None

@@ -135,6 +135,44 @@ python data_gen/active_spatial_pipeline/run_pipeline.py \
 bash scripts/examples/vagen_base/active_spatial/run.sh
 ```
 
+### 3. Resume Training
+
+If training is interrupted (e.g., quota exceeded, node preemption), resume from the latest checkpoint:
+
+```bash
+cd /scratch/by2593/project/Active_Spatial/VAGEN
+
+# Step 1: Check available checkpoints
+ls checkpoints/vagen_active_spatial/<EXPERIMENT_NAME>/
+# e.g. global_step_100/  global_step_120/  global_step_140/  latest_checkpointed_iteration.txt
+
+# Step 2: Verify latest_checkpointed_iteration.txt points to a complete checkpoint
+# (The file may lag behind actual saved checkpoints if the process was killed during saving)
+cat checkpoints/vagen_active_spatial/<EXPERIMENT_NAME>/latest_checkpointed_iteration.txt
+# If a newer complete checkpoint exists, update it:
+echo "140" > checkpoints/vagen_active_spatial/<EXPERIMENT_NAME>/latest_checkpointed_iteration.txt
+
+# Step 3: Set RESUME_MODE="auto" in the experiment config
+# Edit scripts/examples/vagen_base/active_spatial/experiments/<EXPERIMENT_NAME>.sh
+#   RESUME_MODE="auto"           # auto-detect latest checkpoint
+#   VAL_BEFORE_TRAIN="False"     # skip initial validation on resume
+
+# Step 4: Launch training (same command as initial run)
+nohup bash scripts/examples/vagen_base/active_spatial/run_experiment.sh <EXPERIMENT_NAME>.sh \
+    > <EXPERIMENT_NAME>_resume.log 2>&1 &
+
+# Step 5: Verify checkpoint was loaded
+grep -i "Setting global step\|Resuming from" <EXPERIMENT_NAME>_resume.log
+# Expected: "Setting global step to 140" / "Resuming from .../global_step_140"
+```
+
+**Example (v6_antientropy_collapse):**
+```bash
+echo "140" > checkpoints/vagen_active_spatial/v6_antientropy_collapse/latest_checkpointed_iteration.txt
+nohup bash scripts/examples/vagen_base/active_spatial/run_experiment.sh v6_antientropy_collapse.sh \
+    > v6_antientropy_collapse_resume.log 2>&1 &
+```
+
 ### Configuration
 
 Edit `scripts/examples/vagen_base/active_spatial/env_config_balanced.yaml`:

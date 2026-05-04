@@ -5,33 +5,33 @@ FORMAT_CONFIGS = {
     "free_think": {
         "description": "You should first give your thought process, and then your answer.",
         "format": "<think>...</think><action>...</action>",
-        "example": """<think>I can see I'm looking at a room with furniture. The target is to reach the front view of the chair. I should move forward and adjust my angle.</think><action>move_forward|move_forward|turn_right|</action>"""
+        "example": """<think>I can see I'm looking at a room with furniture. The target is to reach the front view of the chair. I need to move forward one step.</think><action>move_forward|</action>"""
     },
     "no_think": {
         "description": "You should provide only your action.",
         "format": "<action>...</action>",
-        "example": """<action>move_forward|move_forward|turn_right|</action>"""
+        "example": """<action>move_forward|</action>"""
     },
     "grounding": {
         "description": "You should first describe what you observe, then reason about the actions needed, and finally provide your action.",
         "format": "<think><observation>...</observation><reasoning>...</reasoning></think><action>...</action>",
-        "example": """<think><observation>I'm in a living room. There's a sofa in front of me, a coffee table to my left, and the target chair is visible in the distance to my right. I appear to be viewing from an oblique angle.</observation><reasoning>To reach the front view of the chair, I need to move right and forward, then adjust my orientation to face the chair directly.</reasoning></think><action>move_forward|turn_right|move_forward|</action>"""
+        "example": """<think><observation>I'm in a living room. There's a sofa in front of me, a coffee table to my left, and the target chair is visible in the distance to my right. I appear to be viewing from an oblique angle.</observation><reasoning>To reach the front view of the chair, I need to turn right first to face it directly.</reasoning></think><action>turn_right|</action>"""
     },
     "worldmodeling": {
         "description": "You should first reason about your actions and predict the expected outcome, then provide your action.",
         "format": "<think><reasoning>...</reasoning><prediction>...</prediction></think><action>...</action>",
-        "example": """<think><reasoning>The target is to reach the front view of the chair. Currently I can see the chair from the side. I need to move around it to face it from the front.</reasoning><prediction>After moving forward and turning left, I should be positioned in front of the chair with a clear frontal view.</prediction></think><action>move_forward|move_forward|turn_left|</action>"""
+        "example": """<think><reasoning>The target is to reach the front view of the chair. Currently I can see the chair from the side. I need to move forward to get closer.</reasoning><prediction>After moving forward, I should be closer to the chair and can then adjust my angle.</prediction></think><action>move_forward|</action>"""
     },
     "grounding_worldmodeling": {
         "description": "You should describe your observation, reason about actions, predict the outcome, then provide your action.",
         "format": "<think><observation>...</observation><reasoning>...</reasoning><prediction>...</prediction></think><action>...</action>",
-        "example": """<think><observation>I'm in a bedroom looking at a desk with a lamp. The target chair is behind me based on the task description.</observation><reasoning>I need to turn around to locate the chair, then navigate to reach its front view.</reasoning><prediction>After turning around, I expect to see the chair and can then approach it directly.</prediction></think><action>turn_right|turn_right|move_forward|</action>"""
+        "example": """<think><observation>I'm in a bedroom looking at a desk with a lamp. The target chair is behind me based on the task description.</observation><reasoning>I need to turn around to locate the chair first.</reasoning><prediction>After turning right, I expect to see the chair and can then approach it directly.</prediction></think><action>turn_right|</action>"""
     }
 }
 
 # Action descriptions for the agent
 ACTION_DESCRIPTIONS = """
-Available actions (use | as separator, end with |):
+Available actions (output EXACTLY ONE action per response, end with |):
 - move_forward: Move the camera forward by a fixed step
 - move_backward: Move the camera backward by a fixed step  
 - turn_left: Rotate the camera left (yaw) by a fixed angle
@@ -69,7 +69,7 @@ Rewards:
 
 Hints:
 1. Pay attention to the target object and the requested view (front, back, left, right, etc.)
-2. Use multiple actions per step to make efficient progress
+2. Output exactly ONE action per response; you will receive feedback after each action
 3. Consider both position and orientation when navigating
 4. Look around if you're unsure of the target location
 """

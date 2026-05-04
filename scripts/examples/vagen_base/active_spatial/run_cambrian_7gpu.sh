@@ -107,7 +107,7 @@ $PYTHON -m vagen.trainer.main_ppo \
     actor_rollout_ref.model.path=$CAMBRIAN_MODEL_PATH \
     actor_rollout_ref.model.external_lib=vagen.models.cambrian_register \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.model.trust_remote_code=True \
+    +actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=12 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \

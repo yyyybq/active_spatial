@@ -24,6 +24,15 @@ NUM_TRAIN_GPUS=4
 RENDERING_GPU=4
 USE_GPU_HOLDER=true
 
+# 远程渲染配置（当渲染机与训练机分离时使用）
+# 实验配置文件可以覆盖这些参数:
+#   RENDER_MODE=remote
+#   RENDER_HOST=192.168.1.100  # 渲染机 IP 或主机名
+#   RENDER_PORT=8777           # 渲染服务端口（默认 8777）
+RENDER_MODE="local"   # "local" = 本机渲染GPU; "remote" = 远程渲染服务
+RENDER_HOST=""        # 远程渲染服务器地址（RENDER_MODE=remote 时必须设置）
+RENDER_PORT="8777"    # 渲染服务 WebSocket 端口
+
 # 模型
 MODEL_PATH="Qwen/Qwen2.5-VL-3B-Instruct"
 
@@ -55,6 +64,8 @@ MAX_TRAJECTORY_LENGTH=14000
 MAX_TURNS=12
 WINDOW_SIZE=5
 MINI_BATCH_SIZE=8
+PPO_MINI_BATCH_SIZE=16  # must be divisible by NUM_TRAIN_GPUS; 16 for 4-GPU, 12 for 6-GPU
+N_TRAJECTORY=1
 
 # Trainer
 SAVE_FREQ=50
@@ -66,6 +77,14 @@ VAL_BEFORE_TRAIN="False"
 ADV_ESTIMATOR="masked_gae"
 HIGH_LEVEL_GAMMA="0.95"
 KL_COEF="0.001"
+LAM="1.0"  # GAE lambda: 1.0=Monte Carlo (high var), 0.9=low var bootstrap
+
+# Critic clip
+CLIPRANGE_VALUE="0.5"
+
+# Resume
+RESUME_MODE="auto"
+RESUME_CKPT_PATH=""
 
 # ========================= LOAD EXPERIMENT CONFIG =========================
 if [ -z "$1" ]; then
@@ -97,8 +116,34 @@ source "$EXPERIMENT_CONFIG"
 # ========================= ENVIRONMENT SETUP =========================
 # 构建 CUDA_VISIBLE_DEVICES
 GPU_LIST=$(seq -s, 0 $((NUM_TRAIN_GPUS - 1)))
-# 渲染 GPU 始终需要对进程可见
-export CUDA_VISIBLE_DEVICES="${GPU_LIST},${RENDERING_GPU}"
+
+if [ "$RENDER_MODE" = "remote" ]; then
+    # 远程渲染：训练卡只需训练 GPU，不暴露渲染 GPU
+    if [ -z "$RENDER_HOST" ]; then
+        echo "ERROR: RENDER_MODE=remote 时必须设置 RENDER_HOST（渲染机地址）"
+        exit 1
+    fi
+    export CUDA_VISIBLE_DEVICES="${GPU_LIST}"
+    # 生成临时 env_config，将 render_backend 切换为 client 模式
+    REMOTE_CLIENT_URL="ws://${RENDER_HOST}:${RENDER_PORT}/render/interiorgs"
+    TMP_ENV_CONFIG="/tmp/env_config_remote_${EXPERIMENT_NAME}.yaml"
+    sed -e "s|render_backend: local|render_backend: client|g" \
+        -e "s|gs_root:.*||g" \
+        -e "s|gpu_device:.*||g" \
+        -e "/^$/d" \
+        -e "/client_url:/d" \
+        "$SCRIPT_DIR/$ENV_CONFIG" > "$TMP_ENV_CONFIG"
+    # 在 render_backend: client 那行后面插入 client_url
+    sed -i "s|render_backend: client|render_backend: client\n        client_url: \"${REMOTE_CLIENT_URL}\"|g" "$TMP_ENV_CONFIG"
+    RESOLVED_ENV_CONFIG="$TMP_ENV_CONFIG"
+    echo "远程渲染模式：client_url=${REMOTE_CLIENT_URL}"
+    echo "临时 env_config: $TMP_ENV_CONFIG"
+else
+    # 本地渲染：渲染 GPU 需要对进程可见
+    export CUDA_VISIBLE_DEVICES="${GPU_LIST},${RENDERING_GPU}"
+    export RENDERING_GPU_ID=${RENDERING_GPU}
+    RESOLVED_ENV_CONFIG="$SCRIPT_DIR/$ENV_CONFIG"
+fi
 
 export PYTHONUNBUFFERED=1
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -109,8 +154,9 @@ export RAY_enable_metrics_collection=false
 export RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
 export GS_RENDERER_VERBOSE=0
 export ACTIVE_SPATIAL_ENV_VERBOSE=0
-export RENDERING_GPU_ID=${RENDERING_GPU}
 export PATH="/scratch/by2593/miniconda3/envs/vagen/bin:$PATH"
+# 注意：不要设置 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# 它与 vLLM CuMemAllocator 不兼容（assert fail in vllm/device_allocator/cumem.py）
 
 # ========================= PRINT CONFIG =========================
 echo "=============================================="
@@ -119,7 +165,11 @@ echo "Config:     $(basename $EXPERIMENT_CONFIG)"
 echo "Model:      $MODEL_PATH"
 echo "Env:        $ENV_CONFIG"
 echo "Train GPUs: $GPU_LIST ($NUM_TRAIN_GPUS GPUs)"
-echo "Render GPU: $RENDERING_GPU"
+if [ "$RENDER_MODE" = "remote" ]; then
+    echo "Render:     REMOTE  ${RENDER_HOST}:${RENDER_PORT}"
+else
+    echo "Render GPU: $RENDERING_GPU (local)"
+fi
 echo "----------------------------------------------"
 echo "Actor LR=$ACTOR_LR  Critic LR=$CRITIC_LR"
 echo "Entropy=$ENTROPY_COEFF  Grad Clip=$GRAD_CLIP"
@@ -127,6 +177,8 @@ echo "Temp=$TEMPERATURE  Top-p=$TOP_P"
 echo "Critic Warmup=$CRITIC_WARMUP"
 echo "Save freq=$SAVE_FREQ  Total steps=$TOTAL_STEPS"
 echo "ADV=$ADV_ESTIMATOR  HL_gamma=$HIGH_LEVEL_GAMMA"
+echo "KL_loss=$USE_KL_LOSS  KL_coef=$KL_LOSS_COEF  Cliprange_V=$CLIPRANGE_VALUE"
+echo "Resume=$RESUME_MODE"
 echo "=============================================="
 
 # ========================= CLEANUP =========================
@@ -143,7 +195,7 @@ trap cleanup EXIT INT TERM
 
 # ========================= CREATE DATASET =========================
 $PYTHON -m vagen.env.create_dataset \
-    --yaml_path "$SCRIPT_DIR/$ENV_CONFIG" \
+    --yaml_path "$RESOLVED_ENV_CONFIG" \
     --train_path "data/$EXPERIMENT_NAME/train.parquet" \
     --test_path "data/$EXPERIMENT_NAME/test.parquet"
 
@@ -152,12 +204,14 @@ HOLDER_LOG_DIR="logs/${EXPERIMENT_NAME}/gpu_holders"
 mkdir -p "$HOLDER_LOG_DIR"
 
 if [ "$USE_GPU_HOLDER" = true ]; then
-    # 渲染卡 holder
-    HOLDER_GPU=$RENDERING_GPU HOLDER_MEM_FRAC=0.75 HOLDER_TARGET=75 \
-        $PYTHON "$SCRIPT_DIR/gpu_holder.py" \
-        > "$HOLDER_LOG_DIR/holder_gpu${RENDERING_GPU}.log" 2>&1 &
-    HOLDER_PIDS+=($!)
-    echo "GPU Holder started for GPU $RENDERING_GPU, PID=$!, log=$HOLDER_LOG_DIR/holder_gpu${RENDERING_GPU}.log"
+    # 渲染卡 holder（仅本地渲染模式）
+    if [ "$RENDER_MODE" != "remote" ]; then
+        HOLDER_GPU=$RENDERING_GPU HOLDER_MEM_FRAC=0.75 HOLDER_TARGET=75 \
+            $PYTHON "$SCRIPT_DIR/gpu_holder.py" \
+            > "$HOLDER_LOG_DIR/holder_gpu${RENDERING_GPU}.log" 2>&1 &
+        HOLDER_PIDS+=($!)
+        echo "GPU Holder started for GPU $RENDERING_GPU, PID=$!, log=$HOLDER_LOG_DIR/holder_gpu${RENDERING_GPU}.log"
+    fi
 
     # 训练卡 holders
     for GPU_ID in $(seq 0 $((NUM_TRAIN_GPUS - 1))); do
@@ -196,6 +250,7 @@ fi
 $PYTHON -m vagen.trainer.main_ppo \
     algorithm.adv_estimator=$ADV_ESTIMATOR \
     algorithm.high_level_gamma=$HIGH_LEVEL_GAMMA \
+    algorithm.lam=$LAM \
     data.train_files=data/$EXPERIMENT_NAME/train.parquet \
     data.val_files=data/$EXPERIMENT_NAME/test.parquet \
     data.train_batch_size=$TRAIN_BATCH_SIZE \
@@ -209,7 +264,7 @@ $PYTHON -m vagen.trainer.main_ppo \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=$ACTOR_LR \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=$PPO_MINI_BATCH_SIZE \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=$USE_KL_LOSS \
     actor_rollout_ref.actor.kl_loss_coef=$KL_LOSS_COEF \
@@ -238,8 +293,9 @@ $PYTHON -m vagen.trainer.main_ppo \
     critic.model.path=$MODEL_PATH \
     critic.model.enable_gradient_checkpointing=True \
     critic.ppo_micro_batch_size_per_gpu=1 \
-    critic.model.fsdp_config.param_offload=False \
-    critic.model.fsdp_config.optimizer_offload=False \
+    critic.model.fsdp_config.param_offload=True \
+    critic.model.fsdp_config.optimizer_offload=True \
+    critic.cliprange_value=$CLIPRANGE_VALUE \
     algorithm.kl_ctrl.kl_coef=$KL_COEF \
     trainer.critic_warmup=$CRITIC_WARMUP \
     trainer.logger=['console','wandb'] \
@@ -255,9 +311,10 @@ $PYTHON -m vagen.trainer.main_ppo \
     rollout_manager.use_multi_turn_reward=True \
     rollout_manager.use_loss_mask=True \
     rollout_manager.use_gae_mask=True \
+    trainer.resume_mode=$RESUME_MODE \
     trainer.val_before_train=$VAL_BEFORE_TRAIN \
     trainer.val_generations_to_log_to_wandb=8 \
-    rollout_manager.n_trajectory=1 \
+    rollout_manager.n_trajectory=$N_TRAJECTORY \
     rollout_manager.use_service=False \
     +rollout_manager.mini_batch_size=$MINI_BATCH_SIZE \
     2>&1 | tee "${EXPERIMENT_NAME}.log"

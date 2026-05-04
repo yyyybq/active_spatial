@@ -1,0 +1,69 @@
+# =============================================================================
+# Active Spatial - Per-1-Action Config, 256×256 resolution (v12)
+# =============================================================================
+# 与 env_config_single_action.yaml 的唯一区别：
+#   image_width/height: 512 → 256
+#
+# 原因：max_turns=50 时，每条轨迹包含 50 张图像。
+# Qwen2.5-VL ViT 在 compute_log_prob 中将所有图像的 patch 拼接后做 attention：
+#   512×512: ~1369 patches/image × 50 = 68,450 patches → attention ≈ 150 GB → OOM
+#   256×256:  ~342 patches/image × 50 = 17,100 patches → attention ≈  9 GB → OK
+#
+# 导航任务不需要高分辨率，256×256 足够识别场景几何和目标位置。
+
+env1:
+    env_name: active_spatial
+    env_config:
+        # Dataset configuration
+        jsonl_path: "/scratch/by2593/project/Active_Spatial/VAGEN/data_gen/active_spatial_pipeline/output_v2/train_data_0267_840790.jsonl"
+
+        # Rendering: local GPU with gsplat (real-time rendering)
+        render_backend: local
+        gs_root: "/scratch/by2593/project/Active_Spatial/InteriorGS"
+        gpu_device: 4
+        image_width: 256
+        image_height: 256
+
+        # Camera control configuration
+        step_translation: 0.2    # meters per step
+        step_rotation_deg: 10.0  # degrees per step
+
+        # ─── Per-1-Action Core Change ────────────────────────────────────────
+        max_actions_per_step: 1   # Each LLM turn = exactly 1 action
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Spatial Potential Field (dense reward)
+        enable_potential_field: true
+        potential_field_position_weight: 0.7
+        potential_field_orientation_weight: 0.3
+        potential_field_reward_scale: 1.0
+        success_score_threshold: 0.85
+
+        # Collision Detection
+        enable_collision_detection: true
+        collision_camera_radius: 0.15
+        collision_floor_height: 0.3
+        collision_ceiling_height: 2.5
+        collision_penalty: -0.05
+
+        # Visibility Check
+        enable_visibility_check: true
+        fov_horizontal: 60.0
+        fov_vertical: 60.0
+
+        # Reward configuration
+        format_reward: 0.01
+        success_reward: 1.0
+        max_distance: 5.0
+
+        # Prompt configuration
+        prompt_format: free_think
+        action_sep: "|"
+        image_placeholder: "<image>"
+
+        # Episode configuration
+        max_episode_steps: 50   # Per-action: 1 LLM turn = 1 env step.
+                                # max_turns=50 in rollout_manager aligns exactly.
+
+    train_size: 259
+    test_size: 19
